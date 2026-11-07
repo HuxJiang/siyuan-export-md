@@ -1,8 +1,8 @@
 /*
  * siyuan-export-md — 导出对话框：表单、进度、下载（由插件实例调用）
  *
- * 正文一律是 HTML，面板上不再有公式格式 / 表格格式 / rawhtml 短代码这些
- * Markdown 相关开关。
+ * 正文以 HTML 为主，标题可在 Markdown（## 标题）与 HTML（<h2>）之间切换，
+ * 面板上不再有公式格式 / 表格格式 / rawhtml 短代码这些开关。
  */
 "use strict";
 
@@ -53,6 +53,14 @@ function openDialog(plugin, protyle) {
       </select>
       <select id="syNotebook" class="b3-select" style="width:230px;display:none;"></select>
     </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <label style="width:82px;color:var(--b3-theme-on-surface-variant);">标题语法</label>
+      <select id="syHeadingStyle" class="b3-select" style="width:170px;">
+        <option value="markdown">Markdown（## 标题）</option>
+        <option value="html">HTML（&lt;h2&gt;标题&lt;/h2&gt;）</option>
+      </select>
+      <span style="color:var(--b3-theme-on-surface-variant);font-size:12px;">正文其余部分始终是 HTML</span>
+    </div>
     <div id="syDocRow" style="display:flex;align-items:center;gap:8px;">
       <label style="width:82px;color:var(--b3-theme-on-surface-variant);">文档 ID</label>
       <input id="syDocId" class="b3-text-field fn__flex-1" placeholder="留空则自动取当前打开的文档" value="${escapeHtml(docId)}" />
@@ -67,12 +75,16 @@ function openDialog(plugin, protyle) {
         <span>标题自动降一级（页面标题占 h1）</span>
       </label>
       <label style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="sySbWidth" class="b3-switch fn__flex-center" />
+        <span>保留超级块栏宽（只取思源里的分栏宽度比例）</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;">
         <input type="checkbox" id="syDebug" class="b3-switch fn__flex-center" />
         <span>在每个块前加来源注释（便于排查）</span>
       </label>
     </div>
     <div style="color:var(--b3-theme-on-surface-variant);font-size:12px;line-height:1.7;">
-      正文输出为纯 HTML（h1–h6 / p / ul / ol / li / table / pre / blockquote / figure 等），
+      标题可选 Markdown（<code>## 标题</code>）或 HTML（<code>&lt;h2&gt;</code>），其余正文仍是 HTML，
       站点需允许内联 HTML（Hugo：<code>markup.goldmark.renderer.unsafe = true</code>）。
     </div>
     <div id="syStatus" style="color:var(--b3-theme-on-surface-variant);min-height:20px;line-height:1.6;">准备就绪</div>
@@ -84,7 +96,7 @@ function openDialog(plugin, protyle) {
 </div>`;
 
   const dialog = new Dialog({
-    title: String((self.i18n && self.i18n.dialogTitle) || "导出为 Hexo / Hugo（纯 HTML）"),
+    title: String((self.i18n && self.i18n.dialogTitle) || "导出为 Hexo / Hugo（HTML 正文）"),
     content,
     width: "720px",
     destroyCallback: () => {
@@ -100,8 +112,10 @@ function openDialog(plugin, protyle) {
   const notebookEl = body.querySelector("#syNotebook");
   const docRowEl = body.querySelector("#syDocRow");
   const docIdEl = body.querySelector("#syDocId");
+  const headingStyleEl = body.querySelector("#syHeadingStyle");
   const assetsEl = body.querySelector("#syAssets");
   const demoteEl = body.querySelector("#syDemote");
+  const sbWidthEl = body.querySelector("#sySbWidth");
   const debugEl = body.querySelector("#syDebug");
   const statusEl = body.querySelector("#syStatus");
   const runEl = body.querySelector("#syRun");
@@ -111,6 +125,8 @@ function openDialog(plugin, protyle) {
   scopeEl.value = self.opts.scope;
   assetsEl.checked = !!self.opts.copyAssets;
   demoteEl.checked = !!self.opts.headingDemote;
+  headingStyleEl.value = self.opts.headingStyle === "html" ? "html" : "markdown";
+  sbWidthEl.checked = self.opts.superblockWidth !== false;
   debugEl.checked = !!self.opts.debugComment;
   hugoLayoutEl.value = self.opts.hugoLayout;
 
@@ -145,6 +161,8 @@ function openDialog(plugin, protyle) {
       scope: scopeEl.value,
       copyAssets: assetsEl.checked,
       headingDemote: demoteEl.checked,
+      headingStyle: headingStyleEl.value,
+      superblockWidth: sbWidthEl.checked,
       hugoLayout: hugoLayoutEl.value,
       hugoContentDir: self.opts.hugoContentDir,
       frontmatter: self.opts.frontmatter,

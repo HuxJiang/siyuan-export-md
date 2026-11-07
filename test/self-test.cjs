@@ -320,7 +320,7 @@ check("暴露自测内部函数", !!exportsObj.__internals);
 
   global.fetch = fakeFetch;
 
-  const opts = { ...I.DEFAULT_OPTIONS, site: "hugo", hugoLayout: "file", headingDemote: true };
+  const opts = { ...I.DEFAULT_OPTIONS, site: "hugo", hugoLayout: "file", headingDemote: true, headingStyle: "html" };
 
   const single = await I.exportDocument("doc1", opts, new I.AssetStore(), "笔记本");
   const content = single.content;
@@ -361,6 +361,25 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   check("正文不再出现 rawhtml 短代码", !content.includes("{{< rawhtml"));
   check("整篇没有连续空行（HTML 块才不会被截断）", !/\n[ \t]*\n/.test(content), content);
   check("不残留编辑器私有属性", !/data-node-id|data-node-index|protyle-|contenteditable/.test(content), content);
+
+  /* ---------------------------------------------------------------- *
+   * 2.1 Markdown 标题模式
+   * ---------------------------------------------------------------- */
+  section("Markdown 标题模式");
+  const md = await I.exportDocument("doc1", { ...opts, headingStyle: "markdown" }, new I.AssetStore(), "笔记本");
+  const mdContent = md.content;
+  console.log("\n--- 生成的内容（Markdown 标题 + HTML 正文） ---\n" + mdContent + "\n--- end ---\n");
+
+  check(
+    "标题输出 ###（h2 降一级），带同名锚点",
+    mdContent.includes('### <a id="标题-A"></a>标题 A'),
+    mdContent
+  );
+  check("Markdown 标题前有空行", /\n\n### <a id="标题-A"><\/a>/.test(mdContent), mdContent);
+  check("Markdown 标题后有空行", /### <a id="标题-A"><\/a>标题 A\n\n/.test(mdContent), mdContent);
+  check("目录锚点指向标题里的 <a id>", mdContent.includes('<a href="#标题-A">标题 A</a>'), mdContent);
+  check("其余块仍是 HTML", mdContent.includes('<p>行内公式 <span class="math-inline"'), mdContent);
+  check("Markdown 模式不再输出 <h3> 标题", !mdContent.includes("<h3"), mdContent);
 
   const result = await I.exportSite(["doc1"], opts, "笔记本", null);
   const zipText = Buffer.from(result.zip).toString("utf8");

@@ -1,8 +1,8 @@
 /*
  * siyuan-export-md — 插件入口：思源 Plugin 生命周期，界面逻辑委托给 ui/dialog
  *
- * 正文一律导出为 HTML（无 Markdown 语法），因此这里不再暴露 kramdown /
- * Markdown 空白整理 / 公式转义这类中间层符号。
+ * 正文以 HTML 为主，标题默认输出 Markdown（## 标题），面板可切回 HTML；
+ * 因此这里不再暴露 kramdown / Markdown 空白整理 / 公式转义这类中间层符号。
  */
 "use strict";
 

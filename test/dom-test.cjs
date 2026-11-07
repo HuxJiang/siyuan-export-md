@@ -67,6 +67,22 @@ const DOMS = {
     '<tbody><tr><td rowspan="2">A</td><td>B</td></tr>' +
     '<tr><td><span data-type="inline-math" data-content="x_i">x_i</span></td></tr></tbody>' +
     "</table></div></div>",
+  // 真实表格结构：首列 rowspan=3，被合并掉的行会带 td.fn__none 占位；
+  // 高亮行内公式在 DOM 里有一份重复节点（data-type="inline-math mark"）
+  t2:
+    '<div data-node-id="t2" data-type="NodeTable" class="table">' +
+    '<div contenteditable="false"><table><colgroup><col style="width:50px"><col style="width:241px">' +
+    '<col style="width:139px"><col style="width:524px"></colgroup>' +
+    "<thead><tr><th>函数</th><th>形式</th><th>图像</th><th>求导</th></tr></thead><tbody>" +
+    '<tr><td rowspan="3">一元</td><td>一般形式 <span data-type="inline-math" data-content="y=f(x)"></span></td>' +
+    '<td>平面曲线</td><td>导数 <span data-type="inline-math" data-content="a"></span>' +
+    '<span data-type="inline-math mark" data-content="a"></span></td></tr>' +
+    '<tr><td class="fn__none"></td><td>隐函数形式</td><td>平面曲线</td>' +
+    '<td>求导 <span data-type="inline-math mark" data-content="b"></span>' +
+    '<span data-type="inline-math" data-content="b"></span></td></tr>' +
+    '<tr><td class="fn__none"></td><td>联立形式</td><td></td><td>两个导数</td></tr>' +
+    '<tr><td>三元</td><td>一般形式</td><td>不均匀体</td><td>梯度</td></tr>' +
+    "</tbody></table></div></div>",
   c1:
     '<div data-node-id="c1" data-type="NodeCallout" class="callout" data-subtype="tip">' +
     '<div class="callout-info"><div class="callout-icon">💡</div>' +
@@ -74,6 +90,23 @@ const DOMS = {
     '<div class="protyle-attr" contenteditable="false">\u200b</div></div>',
   s1: '<div data-node-id="s1" data-type="NodeSuperBlock" data-sb-layout="col" class="sb"></div>',
   s2: '<div data-node-id="s2" data-type="NodeSuperBlock" class="sb"></div>',
+  // 拖过栏宽的超级块：宽度存在子块自己的 style 上（width: calc(% - px); flex: 0 0 auto）
+  s3:
+    '<div data-node-id="s3" data-type="NodeSuperBlock" data-sb-layout="col" class="sb">' +
+    '<div data-node-id="w1" data-type="NodeParagraph" class="p" style="width: calc(66.6% - 12px); flex: 0 0 auto;">' +
+    '<div contenteditable="true">宽栏</div></div>' +
+    '<span class="sb__resize" contenteditable="false"></span>' +
+    '<div data-node-id="w2" data-type="NodeParagraph" class="p" style="width: calc(33.4% - 12px); flex: 0 0 auto;">' +
+    '<div contenteditable="true">窄栏</div></div></div>',
+  s4:
+    '<div data-node-id="s4" data-type="NodeSuperBlock" data-sb-layout="col" class="sb">' +
+    '<div data-node-id="w3" data-type="NodeList" data-subtype="u" class="list" ' +
+    'style="width: calc(70% - 12px); flex: 0 0 auto;">' +
+    '<div data-node-id="w3a" data-type="NodeListItem" data-marker="*" class="li">' +
+    '<div class="protyle-action" contenteditable="false">•</div>' +
+    '<div class="p"><div>列表栏</div></div></div></div>' +
+    '<div data-node-id="w4" data-type="NodeParagraph" class="p" style="background-color:#fff3cd;">' +
+    '<div contenteditable="true">普通段落</div></div></div>',
   b1: '<div data-node-id="b1" data-type="NodeBlockquote" class="bq"></div>',
   p1: '<div data-node-id="p1" data-type="NodeParagraph"><div contenteditable="true">正文内容</div></div>',
   p2: '<div data-node-id="p2" data-type="NodeParagraph"><div contenteditable="true">左栏</div></div>',
@@ -173,6 +206,29 @@ function newCtx(opts) {
   check("剥掉 protyle- 类名", !tableHtml.includes("protyle-"));
   check("表内行内公式转 data-latex", tableHtml.includes('<span class="math-inline" data-latex="x_i">x_i</span>'), tableHtml);
 
+  console.log("\n## 表格：rowspan 占位格 / 重复的高亮公式");
+  const t2Ctx = newCtx();
+  const t2Html = await I.renderBlockHtml({ id: "t2", type: "t" }, t2Ctx);
+  console.log(t2Html);
+  const t2Rows = t2Html
+    .split(/<tr/)
+    .slice(1)
+    .map((row) => (row.match(/<t[dh]/g) || []).length);
+  check("fn__none 占位单元格被删掉", !t2Html.includes("fn__none"), t2Html);
+  check("每行单元格数符合 rowspan 后的网格（4,4,3,3,4）", t2Rows.join(",") === "4,4,3,3,4", t2Rows.join(","));
+  check(
+    "高亮公式的重复节点只保留一份，并包在 mark 里",
+    (t2Html.match(/data-latex="a"/g) || []).length === 1 &&
+      t2Html.includes('<mark><span class="math-inline" data-latex="a">'),
+    t2Html
+  );
+  check(
+    "mark 在前的重复公式同样只保留一份",
+    (t2Html.match(/data-latex="b"/g) || []).length === 1 &&
+      t2Html.includes('<mark><span class="math-inline" data-latex="b">'),
+    t2Html
+  );
+
   console.log("\n## callout");
   const calloutCtx = newCtx();
   const calloutHtml = await I.renderBlockHtml({ id: "c1", type: "callout", subType: "tip" }, calloutCtx);
@@ -193,6 +249,21 @@ function newCtx(opts) {
   check("嵌套超级块里的公式仍走 math-block", (sbHtml.match(/class="[^"]*\bmath-block\b/g) || []).length === 2, sbHtml);
   check("不残留编辑器私有属性", !/data-node-id|data-node-index|updated=/.test(sbHtml), sbHtml);
   check("没有连续空行", !/\n[ \t]*\n/.test(sbHtml.trim()), sbHtml);
+
+  console.log("\n## 超级块宽度比例");
+  const sbWidthHtml = await I.renderBlockHtml({ id: "s3", type: "s" }, newCtx());
+  console.log(sbWidthHtml);
+  check("按思源里的百分比输出 flex 比例", sbWidthHtml.includes("flex:66.6 1 0") && sbWidthHtml.includes("flex:33.4 1 0"), sbWidthHtml);
+  check("不再照抄 width: calc(...) 的 px 尾巴", !/width:\s*calc\(/.test(sbWidthHtml), sbWidthHtml);
+
+  const sbPartialHtml = await I.renderBlockHtml({ id: "s4", type: "s" }, newCtx());
+  console.log(sbPartialHtml);
+  check("只有部分子块有宽度时按剩余比例均分", sbPartialHtml.includes("flex:70 1 0") && sbPartialHtml.includes("flex:30 1 0"), sbPartialHtml);
+  check("只取宽度，不搬背景色等其他样式", !sbPartialHtml.includes("background-color"), sbPartialHtml);
+
+  const sbEqualHtml = await I.renderBlockHtml({ id: "s3", type: "s" }, newCtx({ superblockWidth: false }));
+  console.log(sbEqualHtml);
+  check("关闭选项后等宽均分", (sbEqualHtml.match(/flex:1 1 0/g) || []).length === 2 && !sbEqualHtml.includes("flex:66.6"), sbEqualHtml);
 
   console.log("\n## 引用（子块兜底）");
   const quoteHtml = await I.renderBlockHtml({ id: "b1", type: "b" }, newCtx());
@@ -242,14 +313,26 @@ function newCtx(opts) {
   check("反引号转义为 &#96;", !codeNoPre.includes("`") && codeNoPre.includes("&#96;"), codeNoPre);
 
   console.log("\n## 标题 / 行内节点");
-  const headCtx = newCtx({ headingDemote: true });
+  const headCtx = newCtx({ headingDemote: true, headingStyle: "html" });
   const headHtml = await I.renderBlockHtml({ id: "h1", type: "h" }, headCtx);
   console.log(headHtml);
-  check("标题降一级并保留行内 em", headHtml === '<h3 id="小节-标题">小节 <em>标题</em></h3>', headHtml);
+  check("HTML 模式：标题降一级并保留行内 em", headHtml === '<h3 id="小节-标题">小节 <em>标题</em></h3>', headHtml);
   check("目录收集到标题", headCtx.headings.length === 1 && headCtx.headings[0].id === "小节-标题", JSON.stringify(headCtx.headings));
 
-  const headNoDemote = await I.renderBlockHtml({ id: "h1", type: "h" }, newCtx({ headingDemote: false }));
+  const headNoDemote = await I.renderBlockHtml({ id: "h1", type: "h" }, newCtx({ headingDemote: false, headingStyle: "html" }));
   check("关闭降级时输出 h2", headNoDemote.startsWith("<h2 "), headNoDemote);
+
+  const mdCtx = newCtx({ headingDemote: true, headingStyle: "markdown" });
+  const mdHtml = await I.renderBlockHtml({ id: "h1", type: "h" }, mdCtx);
+  console.log(mdHtml);
+  check(
+    "Markdown 模式：输出 ### 标题并带同名锚点",
+    mdHtml === '### <a id="小节-标题"></a>小节 <em>标题</em>',
+    mdHtml
+  );
+
+  const mdNoDemote = await I.renderBlockHtml({ id: "h1", type: "h" }, newCtx({ headingDemote: false, headingStyle: "markdown" }));
+  check("Markdown 模式关闭降级时输出 ##", mdNoDemote.startsWith('## <a id="小节-标题"></a>'), mdNoDemote);
 
   const inlineHtml = await I.renderBlockHtml({ id: "r1", type: "p" }, newCtx());
   console.log(inlineHtml);

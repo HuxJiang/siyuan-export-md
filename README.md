@@ -1,21 +1,23 @@
-# 导出 Hexo/Hugo（纯 HTML 正文）
+# 导出 Hexo/Hugo（HTML 正文，标题可选 Markdown）
 
-把思源文档导出成**能直接被 Hugo / Hexo 构建**的压缩包。产物仍是 `.md` 内容文件（Front Matter 保持不变），但**正文是一整段纯 HTML**：
+把思源文档导出成**能直接被 Hugo / Hexo 构建**的压缩包。产物仍是 `.md` 内容文件（Front Matter 保持不变），正文是 HTML，**标题默认用 Markdown 语法**：
 
-```html
+```markdown
 <div class="sy-doc">
 <nav class="sy-toc">…</nav>
-<h2 id="小节标题">小节标题</h2>
+
+### <a id="小节标题"></a>小节标题
+
 <p>正文 <strong>粗体</strong> 与 <span class="math-inline" data-latex="x_i">x_i</span></p>
 …
 </div>
 ```
 
-正文里不再出现任何 Markdown 语法：没有 `#` 标题、没有 `![图片]()`、没有 GFM 管道表、没有代码围栏、没有 rawhtml 短代码。每个元素都是真正的 HTML 标签，语义从前一版“内核 kramdown → Markdown 字符串”整条链路改为**思源渲染态 DOM → 语义 HTML**，因此列表、引用、分栏、表格在静态站不会再因为 Markdown 解析规则而走样。
+标题行是 `## 标题` 形式的 Markdown，前面挂一个空 `<a id>` 供目录锚点使用；除标题外，段落、列表、表格、代码、公式、标注块、超级块全部是语义 HTML，不用 Markdown 语法（没有 `![图片]()`、GFM 管道表、代码围栏、rawhtml 短代码）。导出面板里的「标题语法」可在 Markdown 与 HTML 之间切换。
 
 主要契约：
 
-- **标题** → `<h1>`…`<h6>`（默认降一级，`id` 由标题文字生成，供目录锚点用）
+- **标题** → `## 标题`（Markdown，可切回 `<h1>`…`<h6>`；默认降一级，锚点 `id` 由标题文字生成）
 - **段落** → `<p>`，行内 `strong / em / u / s / mark / kbd / code / a / img` 保留语义
 - **列表** → 真正的 `<ul>` / `<ol>` / `<li>`，任务列表带 `<input type="checkbox" disabled>`，嵌套列表就是嵌套 `<ul>`
 - **引用** → `<blockquote>`，内部子块同样是 HTML
@@ -24,7 +26,7 @@
 - **表格** → 原始 `<table>`（保留 `rowspan` / `colspan` / `colgroup`），外面包 `<div class="table-wrapper">`
 - **图片** → `<figure class="sy-image"><img src alt></figure>`
 - **标注块** → `<div class="callout callout-note|tip|important|warning|danger"><div class="callout-title">…</div><div class="callout-body">…</div></div>`
-- **超级块（分栏）** → `<div class="sy-superblock sy-superblock-col|row" style="display:flex;…">`，子块根节点带内联 flex 与 `sy-superblock-child`，思源拖拽后的栏宽保留
+- **超级块（分栏）** → `<div class="sy-superblock sy-superblock-col|row" style="display:flex;…">`，子块根节点带内联 flex 与 `sy-superblock-child`；横向分栏按思源里拖出的**宽度百分比**折算成 `flex` 比例（如 `flex:70 1 0` / `flex:30 1 0`），站点容器宽度与间距变了也不会走样
 - **附件** → 拷贝进站点静态目录，文件名 ASCII 化，`src` / `href` 路径整体重写
 
 ---
@@ -52,7 +54,9 @@
 | 导出范围 | 当前文档 | 当前文档 / 整个笔记本 |
 | 文档 ID | 自动填入 | 留空则取当前打开的文档 |
 | 打包附件 | 开 | 图片等资源一起进 zip，并重写引用路径 |
+| 标题语法 | Markdown | `Markdown（## 标题）` / `HTML（<h2>标题</h2>）`；只影响标题行，其余正文始终是 HTML |
 | 标题降一级 | 开 | 关掉则按思源原级别输出（原 h1 仍是 h1） |
+| 保留超级块栏宽 | 开 | 横向分栏按思源里拖出的宽度百分比折算成 `flex` 比例；关掉则等宽均分 |
 | 来源注释 | 脱 | 每个块前加 `<!-- siyuan:类型 -->`，排查用 |
 
 导出完成后浏览器下载一个 zip。
@@ -83,7 +87,7 @@ source/_posts/<slug>/<ascii-文件名>.png
 
 | 思源元素 | 类型 | 导出的 HTML | 说明 |
 | --- | --- | --- | --- |
-| 标题 | `h` | `<h1>`–`<h6 id="…">` | 默认整体降一级；`id` 用于目录锚点，重名自动加 `-2` |
+| 标题 | `h` | `## 标题`（Markdown，默认）/ `<h1>`–`<h6 id="…">` | 默认整体降一级；Markdown 模式在标题前挂 `<a id="…">` 供目录锚点，重名自动加 `-2` |
 | 段落 | `p` | `<p>` | 行内节点映射为语义标签，属性有白名单 |
 | 无序/有序列表 | `l` | `<ul>` / `<ol>` + `<li>` | 嵌套列表直接嵌套；列表项的段落压平，避免多余间距 |
 | 任务列表 | `l`(t) | `<li class="task-item"><input type="checkbox" disabled checked>` | 勾选状态保留 |
@@ -94,7 +98,7 @@ source/_posts/<slug>/<ascii-文件名>.png
 | 表格 | `t` | `<table>` + `<div class="table-wrapper">` | 保 `rowspan` / `colspan` / `colgroup` |
 | 图片 | `img` | `<figure class="sy-image"><img></figure>` | 有 title 时输出 `<figcaption>` |
 | 标注块 | `callout` | `<div class="callout callout-*">` + title + body | 标题与图标取块内实际值 |
-| 超级块 | `s` | `<div class="sy-superblock sy-superblock-col|row">` | 按 `data-sb-layout` 还原并排 / 堆叠；子块带内联 flex 与 `sy-superblock-child` |
+| 超级块 | `s` | `<div class="sy-superblock sy-superblock-col|row">` | 按 `data-sb-layout` 还原并排 / 堆叠；横向分栏按思源里的 `width: calc(66.6% - 12px)` **只取宽度百分比**，归一化成子块的 `flex` 比例，不搬 `calc` 的 px 项 |
 | 数据库/属性视图 | `av` | 表格视图 → `<table>` + `table-wrapper`；其它视图 → `<div class="sy-database">` | 只导出当前视图 |
 | 挂件 | `widget` | `<iframe>` 或占位 `<div class="sy-placeholder">` | 依赖思源运行时 |
 | 音视频 / iframe | `video`/`audio`/`iframe` | 原生标签 | 媒体文件需自行部署 |
@@ -109,7 +113,7 @@ source/_posts/<slug>/<ascii-文件名>.png
 
 ## 四、站点侧需要配的
 
-正文是纯 HTML，站点必须**允许内联 HTML**，否则内容会被渲染器丢掉。
+正文以 HTML 为主（标题默认是 Markdown 行），站点必须**允许内联 HTML**，否则内容会被渲染器丢掉。
 
 ### Hugo
 
@@ -168,14 +172,19 @@ Hexo 默认的 marked 渲染器会把裸 HTML 原样透传；不要额外装会�
 
 ### 关于空行
 
-CommonMark / goldmark 的 HTML 块**遇到空行就结束**，之后的正文会被重新按 Markdown 解析。插件已经处理：整篇正文压掉连续空行，`<pre>` 里的空行换成一行 `&#32;`（视觉上仍是空行）。所以不需要手工调整导出的 HTML。
+CommonMark / goldmark 的 HTML 块**遇到空行就结束**，之后的正文会被重新按 Markdown 解析。
+
+- **标题语法 = Markdown**（默认）：标题行前后各保留一个空行，`## 标题` 才会被当成标题解析；其余位置仍只保留单个空行，`<pre>` 里的空行换成 `&#32;`。
+- **标题语法 = HTML**：整篇正文压掉连续空行，正文是一个完整 HTML 块，不会被 Markdown 再解析一遍。
+
+两种模式都不需要手工调整导出的内容。
 
 ## 五、和 `siyuan2hugo.py` 的差别
 
 | 能力 | 脚本 | 插件 |
 | --- | --- | --- |
 | 输入 | 思源「导出 HTML」目录 + 命令行参数 | 内核 API 直读文档树 |
-| 正文形态 | Markdown + 局部 HTML | 全 HTML |
+| 正文形态 | Markdown + 局部 HTML | HTML + Markdown 标题（可切全 HTML） |
 | drawio | `docker jgraph/drawio` 转 SVG，失败降级为占位 callout | 无 docker 能力，按图表/媒体/HTML 兜底并告警 |
 | 附件拷贝 | 文件名 ASCII 化 | 同（另加多候选路径探测 + 失败告警） |
 | Front Matter | `title / date / toc: true` | script 模式同（另出 `tags`、Hugo 的 `categories`）；full 模式追加 `updated / slug / draft` |
@@ -202,5 +211,5 @@ npm i jsdom                 # 两个自测都依赖它（package.json 已声明�
 - 挂件 / 查询嵌入 / 数据库的动态行为无法静态化，只能导出当时的静态外观或占位；
 - 挂件引用的 `/widgets/…`、`/plugins/…`、`/api/…` 属运行态路径，不拷进包（拷了在静态站也跑不起来）；
 - 块引用 `((id "文字"))` 导出为锚文字纯文本，不生成跨文档锚点；
-- 正文是 HTML，站点的 Markdown 渲染必须允许内联 HTML（Hugo 需 `goldmark unsafe`）；
+- 正文是 HTML（标题默认用 Markdown），站点的 Markdown 渲染必须允许内联 HTML（Hugo 需 `goldmark unsafe`）；
 - 同一文档导出两次会覆盖同名文件（zip 是整体产物，不做增量）。

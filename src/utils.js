@@ -98,6 +98,40 @@ function compactHtml(html) {
   return out.replace(/^[ \t]*\n+/g, "").replace(/\n+[ \t]*$/g, "");
 }
 
+/**
+ * Markdown 标题模式下的正文整理：
+ *   - `## 标题` 这类行前后必须各留一个空行，否则会被上一段 HTML 块吞掉、原样输出成文字；
+ *   - 其余位置只留一个空行（避免整篇被 HTML 块规则拆得七零八落）；
+ *   - <pre> 内的空行照旧换成 &#32;，防止代码块提前结束。
+ */
+function spacedBody(html) {
+  const src = String(html == null ? "" : html).replace(/\r\n?/g, "\n");
+  const parts = src.split(/(<pre\b[^>]*>[\s\S]*?<\/pre>)/i);
+  const out = parts
+    .map((part, index) => {
+      if (index % 2 === 1) {
+        return part
+          .split("\n")
+          .map((line) => (line.trim() === "" ? "&#32;" : line))
+          .join("\n");
+      }
+      const acc = [];
+      part.split("\n").forEach((line) => {
+        if (/^#{1,6}[ \t]+/.test(line)) {
+          if (acc.length && acc[acc.length - 1].trim() !== "") acc.push("");
+          acc.push(line);
+          acc.push("");
+          return;
+        }
+        if (line.trim() === "" && acc.length && acc[acc.length - 1].trim() === "") return;
+        acc.push(line);
+      });
+      return acc.join("\n");
+    })
+    .join("");
+  return out.replace(/^[ \t]*\n+/g, "").replace(/\n+[ \t]*$/g, "");
+}
+
 module.exports = {
   logWarn,
   ZERO_WIDTH_RE,
@@ -112,4 +146,5 @@ module.exports = {
   textOf,
   replaceAllLiteral,
   compactHtml,
+  spacedBody,
 };

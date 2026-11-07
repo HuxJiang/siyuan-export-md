@@ -25,6 +25,7 @@ const {
   headingLevelOf,
   layoutOf,
   hasOwnSizing,
+  widthRatios,
   findTable,
   cleanElement,
   cleanTableHtml,
@@ -240,6 +241,14 @@ function renderHeading(el, ctx, meta) {
   const text = textOf(holder).replace(/\s+/g, " ").trim();
   const id = uniqueHeadingId(text || "section", ctx);
   ctx.headings.push({ level, text, id });
+
+  // Markdown 标题：`## 标题`。行内仍是 HTML（粗体/公式/链接），站点开 unsafe 即可；
+  // 标题前挂一个空 <a id>，让目录锚点不依赖站点自己生成的 heading id。
+  if (ctx.opts && ctx.opts.headingStyle === "markdown") {
+    const inline = inner.replace(/\s*\n\s*/g, " ").trim();
+    return `${"#".repeat(level)} <a id="${escapeHtml(id)}"></a>${inline}`;
+  }
+
   return `<h${level} id="${escapeHtml(id)}">${inner}</h${level}>`;
 }
 
@@ -513,8 +522,12 @@ function renderCallout(el, ctx, meta) {
   return wrap.outerHTML;
 }
 
-/** 给分栏子块的根节点补默认 flex 与标记类（解析不出单根节点时原样返回）。 */
-function styleChildRoot(html, layout) {
+/**
+ * 给分栏子块的根节点补默认 flex 与标记类（解析不出单根节点时原样返回）。
+ * ratio 是这一行里各子块的宽度比例（百分数），有就按 flex 比例分配，
+ * 不再写死 width: calc(...)——站点容器宽度、间距都和思源不同。
+ */
+function styleChildRoot(html, layout, ratio) {
   const src = String(html || "").trim();
   if (!src) return "";
   if (typeof DOMParser === "undefined") return src;
@@ -524,7 +537,9 @@ function styleChildRoot(html, layout) {
     if (!root || doc.body.children.length !== 1) return src;
 
     const style = String(root.getAttribute("style") || "");
-    if (layout === "col" && !hasOwnSizing(style)) {
+    if (typeof ratio === "number" && ratio > 0) {
+      root.setAttribute("style", mergeStyle(style, `flex:${ratio} 1 0;min-width:0;max-width:100%`));
+    } else if (layout === "col" && !hasOwnSizing(style)) {
       root.setAttribute("style", mergeStyle(style, SUPERBLOCK_STYLE.col.cell));
     }
     const cls = classTokens(root);
@@ -536,17 +551,35 @@ function styleChildRoot(html, layout) {
   }
 }
 
+/** 子块里可以参与分栏排布的块（跳过装饰手柄、非块节点）。 */
+function layoutChildren(el) {
+  return Array.from(el.childNodes).filter((child) => {
+    if (child.nodeType !== 1) return false;
+    if (isChrome(child)) return false;
+    return isBlockNode(child);
+  });
+}
+
+/**
+ * 横向分栏（col）里各子块的宽度比例：只取宽度的百分比，按行内合计归一化。
+ * 纵向堆叠不看宽度；选项关闭时返回 null（等宽均分）。
+ */
+function superblockRatios(el, layout, ctx) {
+  if (layout !== "col") return null;
+  if (ctx && ctx.opts && ctx.opts.superblockWidth === false) return null;
+  return widthRatios(layoutChildren(el));
+}
+
 function renderSuperblock(el, ctx) {
   const doc = el.ownerDocument;
   const layout = layoutOf(el);
+  const ratios = superblockRatios(el, layout, ctx);
   const parts = [];
 
-  Array.from(el.childNodes).forEach((child) => {
-    if (child.nodeType !== 1) return;
-    if (isChrome(child)) return;
-    if (!isBlockNode(child)) return; // 装饰/调整手柄
+  layoutChildren(el).forEach((child, index) => {
+    const ratio = ratios ? ratios[index] : null;
     const html = renderElement(child, ctx);
-    const root = styleChildRoot(html, layout);
+    const root = styleChildRoot(html, layout, ratio);
     if (root) parts.push(root);
   });
   if (!parts.length) return "";

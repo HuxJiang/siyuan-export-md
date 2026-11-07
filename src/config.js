@@ -13,6 +13,8 @@ const DEFAULT_OPTIONS = {
   scope: "doc",
   copyAssets: true,
   headingDemote: true,
+  headingStyle: "markdown", // markdown（## 标题）| html（<h2>标题</h2>）
+  superblockWidth: true, // 保留思源里拖拽出来的超级块栏宽（关掉则等宽均分）
   hugoLayout: "file", // file | bundle
   hugoContentDir: "notes",
   frontmatter: "script", // script | full

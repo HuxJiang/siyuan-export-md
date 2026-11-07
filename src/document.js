@@ -1,10 +1,10 @@
 /*
  * siyuan-export-md — 文档级导出：元信息、Front Matter、目录、正文 HTML 组装
  *
- * 产物仍是 .md 文件（Hugo / Hexo 的 content 文件），但正文是一整段纯 HTML：
+ * 产物仍是 .md 文件（Hugo / Hexo 的 content 文件），正文默认是「Markdown 标题 + HTML 块」：
  *    <div class="sy-doc"> … </div>
- * 没有任何 Markdown 语法。CommonMark 的 HTML 块遇空行即结束，所以整段正文
- * 由 compactHtml 压掉连续空行；<pre> 内的空行换成 &#32; 保留代码排版。
+ * 标题行（## 标题）前后留空行交给站点解析；其余是语义 HTML。标题语法切到 HTML 时
+ * 整段正文压掉空行，保持一个完整 HTML 块。
  */
 "use strict";
 
@@ -12,6 +12,7 @@ const { getDocRow, getChildBlocks, listDocsOfNotebook, normalizeType } = require
 const {
   stripZeroWidth,
   compactHtml,
+  spacedBody,
   escapeHtml,
   formatDate,
   yamlString,
@@ -128,6 +129,9 @@ function finalizeBody(body, ctx) {
   let out = String(body || "");
   if (out.includes(TOC_PLACEHOLDER)) out = out.split(TOC_PLACEHOLDER).join(renderToc(ctx.headings));
   out = stripZeroWidth(out);
+  // 标题用 Markdown 时必须保留空行，让 `## 标题` 成为独立的 Markdown 块；
+  // 纯 HTML 模式则压掉空行，保证整篇是一个 HTML 块。
+  if (ctx.opts && ctx.opts.headingStyle === "markdown") return spacedBody(out);
   return compactHtml(out);
 }
 

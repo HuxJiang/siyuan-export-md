@@ -22,7 +22,7 @@ const REPORT_STYLE = [
 const SITE_CONFIG_HINT = [
   "<h2>站点侧配置</h2>",
   "<h3>Hugo</h3>",
-  "<p>正文全部是 HTML，必须允许内联 HTML，否则 goldmark 会把公式容器、表格、callout 丢掉：</p>",
+  "<p>正文是 HTML（Markdown 标题模式下标题行是 <code>##</code>），必须允许内联 HTML，否则 goldmark 会把公式容器、表格、callout 丢掉：</p>",
   "<pre><code>[markup.goldmark.renderer]\nunsafe = true</code></pre>",
   "<p>公式由站点侧脚本按 <code>data-latex</code> 渲染 <code>.math-block</code> / <code>.math-inline</code>；",
   "如果模板用 <code>{{ if in .Content \"math-block\" }}</code> 判断是否加载 KaTeX，要同时判断 <code>math-inline</code>。</p>",
@@ -51,7 +51,9 @@ function buildReport({ opts, docCount, fileCount, assetCount, warnings }) {
     "<h1>思源导出报告</h1>",
     '<ul class="meta">',
     `<li>站点类型：${escapeHtml(opts.site)}</li>`,
-    "<li>正文格式：纯 HTML（无 Markdown 语法）</li>",
+    `<li>正文格式：${
+      opts.headingStyle === "html" ? "纯 HTML（无 Markdown 语法）" : "Markdown 标题（##）+ HTML 正文"
+    }</li>`,
     `<li>导出文档：${docCount} 篇</li>`,
     `<li>导出文件：${fileCount} 个（含资源 ${assetCount} 个）</li>`,
     `<li>导出时间：${escapeHtml(new Date().toLocaleString())}</li>`,
