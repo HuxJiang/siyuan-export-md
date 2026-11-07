@@ -1,27 +1,26 @@
 /*
  * siyuan-export-md — 插件入口：思源 Plugin 生命周期，界面逻辑委托给 ui/dialog
- * 由单文件 index.js 按功能拆分而来，业务代码保持原样。
+ *
+ * 正文一律导出为 HTML（无 Markdown 语法），因此这里不再暴露 kramdown /
+ * Markdown 空白整理 / 公式转义这类中间层符号。
  */
 "use strict";
 
 const { DEFAULT_OPTIONS, LOG_PREFIX } = require("./config");
 const { currentDocId, openDialog, doExport, downloadBytes } = require("./ui/dialog");
-const { cleanKramdown } = require("./kramdown");
-const { applyMathFormat } = require("./math");
-const { normalizeMarkdownWhitespace } = require("./markdown-text");
 const { slugify, asciiFileName, docPaths } = require("./naming");
-const { exportDocument } = require("./document");
 const { normalizeType } = require("./api");
 const { AssetStore } = require("./assets");
+const { exportDocument } = require("./document");
 const { exportSite } = require("./site");
-const { exportTable } = require("./render/exporters/table");
-const { exportCallout } = require("./render/exporters/callout");
-const { exportImage } = require("./render/exporters/image");
-const { renderBlockHtml, renderChildrenHtml, wrapHtmlFragment } = require("./render/html");
+const { renderBlock, renderBlockSafe, renderBlockHtml, renderChildrenHtml } = require("./render/dispatch");
+const { renderElement } = require("./render/block");
+const { normalizeLatex, mathInline, mathBlock } = require("./math");
+const { compactHtml } = require("./utils");
 const { TOPBAR_ICON } = require("./ui/topbar-icon");
 const { Plugin } = require("siyuan");
 
-class SiYuanMarkdownExporter extends Plugin {
+class SiYuanHtmlExporter extends Plugin {
   /** 思源以 new PluginClass(options) 构造，options 里带 app 等运行时上下文，必须原样转发给基类 */
   constructor(options) {
     super(options);
@@ -40,13 +39,13 @@ class SiYuanMarkdownExporter extends Plugin {
 
     this.addTopBar({
       icon: TOPBAR_ICON,
-      title: String((this.i18n && this.i18n.topbarTitle) || "导出 Markdown"),
+      title: String((this.i18n && this.i18n.topbarTitle) || "导出 Html"),
       position: "right",
       callback: () => this.openDialog(),
       contextMenu: (menu) => {
         menu.addItem({
           icon: "iconSettings",
-          label: String((this.i18n && this.i18n.menuExport) || "导出为 Markdown"),
+          label: String((this.i18n && this.i18n.menuExport) || "导出为 HTML"),
           click: () => this.openDialog()
         });
       }
@@ -54,7 +53,7 @@ class SiYuanMarkdownExporter extends Plugin {
 
     this.addCommand({
       langKey: "exportMarkdown",
-      langText: String((this.i18n && this.i18n.commandTitle) || "导出为 Markdown（Hexo/Hugo）"),
+      langText: String((this.i18n && this.i18n.commandTitle) || "导出为 HTML（Hexo/Hugo）"),
       hotkey: "⌥⇧E",
       execute: (context) => this.openDialog(context && context.protyle)
     });
@@ -64,6 +63,7 @@ class SiYuanMarkdownExporter extends Plugin {
     if (this.dialog) this.dialog.destroy();
     this.dialog = null;
   }
+
   currentDocId(protyle) {
     return currentDocId(protyle);
   }
@@ -81,14 +81,11 @@ class SiYuanMarkdownExporter extends Plugin {
   }
 }
 
-module.exports = SiYuanMarkdownExporter;
-module.exports.default = SiYuanMarkdownExporter;
+module.exports = SiYuanHtmlExporter;
+module.exports.default = SiYuanHtmlExporter;
 /** 自测用：暴露纯函数，生产环境无副作用（只列 test/ 里实际用到的符号）。 */
 module.exports.__internals = {
   DEFAULT_OPTIONS,
-  cleanKramdown,
-  applyMathFormat,
-  normalizeMarkdownWhitespace,
   slugify,
   asciiFileName,
   docPaths,
@@ -96,10 +93,13 @@ module.exports.__internals = {
   AssetStore,
   exportSite,
   exportDocument,
-  exportTable,
-  exportCallout,
-  exportImage,
+  renderBlock,
+  renderBlockSafe,
   renderBlockHtml,
   renderChildrenHtml,
-  wrapHtmlFragment,
+  renderElement,
+  normalizeLatex,
+  mathInline,
+  mathBlock,
+  compactHtml,
 };

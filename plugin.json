@@ -2,17 +2,17 @@
   "name": "siyuan-export-md",
   "author": "Hux",
   "url": "https://github.com/HuxJiang/siyuan-export-md",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "minAppVersion": "3.0.0",
   "backends": ["windows", "linux", "darwin", "docker"],
   "frontends": ["desktop", "desktop-window", "browser-desktop", "mobile", "browser-mobile"],
   "displayName": {
-    "default": "Export for Hexo/Hugo",
-    "zh_CN": "导出 Hexo/Hugo Markdown"
+    "default": "Export for Hexo/Hugo (HTML)",
+    "zh_CN": "导出 Hexo/Hugo（纯 HTML 正文）"
   },
   "description": {
-    "default": "Export SiYuan documents as Markdown for hexo/Hugo: formulas become data-latex containers, tables keep merged cells as HTML, callouts, assets and heading levels are converted for a KaTeX-based static theme.",
-    "zh_CN": "把思源文档导出成可直接构建的 Hexo/Hugo Markdown：公式转 data-latex 容器、表格保留合并单元格、标注块转 callout、附件 ASCII 化并重写路径、标题降一级。"
+    "default": "Export SiYuan documents as HTML body content files for hexo/Hugo: headings, lists, quotes, code, formulas (data-latex), tables with merged cells, callouts, superblocks, assets and diagrams are all emitted as semantic HTML, so the static site no longer depends on Markdown parsing.",
+    "zh_CN": "把思源文档导出成可直接构建的 Hexo/Hugo 内容文件：标题、列表、引用、代码、公式（data-latex）、表格（保留合并单元格）、标注块、超级块、附件与图表全部输出为语义 HTML，正文不再使用任何 Markdown 语法。"
   },
   "readme": {
     "default": "README.md",
@@ -21,5 +21,5 @@
   "funding": {
     "custom": []
   },
-  "keywords": ["export", "markdown", "hexo", "hugo", "导出"]
+  "keywords": ["export", "html", "hexo", "hugo", "导出"]
 }

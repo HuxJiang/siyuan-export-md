@@ -1,7 +1,7 @@
 {
-  "topbarTitle": "Export Markdown",
-  "commandTitle": "Export as Markdown (Hexo/Hugo)",
-  "exportMarkdown": "Export as Markdown (Hexo/Hugo)",
-  "dialogTitle": "Export for Hexo / Hugo",
-  "menuExport": "Export as Markdown"
+  "topbarTitle": "Export HTML",
+  "commandTitle": "Export as HTML (Hexo/Hugo)",
+  "exportMarkdown": "Export as HTML (Hexo/Hugo)",
+  "dialogTitle": "Export for Hexo / Hugo (HTML body)",
+  "menuExport": "Export as HTML"
 }

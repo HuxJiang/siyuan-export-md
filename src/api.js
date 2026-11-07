@@ -1,5 +1,5 @@
 /*
- * siyuan-export-md — 思源内核 API：fetch 封装、SQL、子块/文档/DOM/kramdown 读取
+ * siyuan-export-md — 思源内核 API：fetch 封装、SQL、子块/文档/DOM/资源文件读取
  * 由单文件 index.js 按功能拆分而来，业务代码保持原样。
  */
 "use strict";
@@ -140,12 +140,6 @@ async function getBlockDom(id) {
   return (data && (data.dom || data.html)) || "";
 }
 
-async function getBlockKramdown(id) {
-  const data = await api("/api/block/getBlockKramdown", { id });
-  if (typeof data === "string") return data;
-  return (data && data.kramdown) || "";
-}
-
 async function readWorkspaceFile(path) {
   return await apiBinary("/api/file/getFile", { path });
 }
@@ -178,7 +172,6 @@ module.exports = {
   normalizeType,
   getChildBlocks,
   getBlockDom,
-  getBlockKramdown,
   readWorkspaceFile,
   listNotebooks,
   listDocsOfNotebook,

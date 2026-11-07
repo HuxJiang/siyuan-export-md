@@ -1,21 +1,21 @@
 /*
  * siyuan-export-md — 全局常量：日志前缀与默认导出选项
- * 由单文件 index.js 按功能拆分而来，业务代码保持原样。
+ *
+ * 正文一律输出 HTML，因此不再有「公式格式」「表格格式」这类 Markdown 开关；
+ * 也不再有 rawhtml 短代码开关（整篇正文就是 HTML，站点只需允许内联 HTML）。
  */
 "use strict";
 
 const LOG_PREFIX = "[siyuan-export-md]";
+
 const DEFAULT_OPTIONS = {
   site: "hugo",
   scope: "doc",
   copyAssets: true,
-  mathFormat: "data-latex", // data-latex | raw
-  tableFormat: "html", // html | gfm
   headingDemote: true,
   hugoLayout: "file", // file | bundle
   hugoContentDir: "notes",
   frontmatter: "script", // script | full
-  hugoRawHtmlShortcode: false,
   debugComment: false
 };
 

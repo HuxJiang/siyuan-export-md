@@ -7,7 +7,6 @@
 const { sql, readWorkspaceFile } = require("./api");
 const { stripZeroWidth, replaceAllLiteral, escapeSql } = require("./utils");
 const { asciiFileName, docPaths } = require("./naming");
-const { splitFencedCode } = require("./markdown-text");
 
 /* ------------------------------------------------------------------ *
  * 7. 资源仓库：解析 → 读取 → ASCII 命名 → 路径重写
@@ -160,70 +159,37 @@ class AssetStore {
   }
 }
 
-/** 判断一个 href 是否是工作空间里的资源引用（附件、图片），而不是普通站内链接。 */
-function looksLikeAssetRef(url) {
-  return /^(?:\/data\/|\/assets\/|assets\/|\.\/assets\/)/.test(String(url || "").trim());
-}
+/**
+ * 重写正文里的资源引用。
+ *
+ * 纯 HTML 正文只有属性形态的引用（src / href / poster / data-src），代码块里的
+ * 示例代码已经被 escape 成 &quot; 文本，不会再命中这个正则，所以不需要再按围栏
+ * 代码切片跳过。
+ */
+const ATTR_REF_RE = /\b(src|href|poster|data-src)="([^"]*)"/g;
 
-/** 重写 Markdown 图片、Markdown 附件链接与 HTML 里的 src/href/data-href/poster。 */
 async function rewriteAssetRefs(body, ctx) {
-  // 代码块里的示例代码不参与重写，避免把 `[x](assets/y.pdf)` 这类文本改掉
-  const parts = splitFencedCode(body);
-  const rewritten = [];
-  for (const part of parts) {
-    rewritten.push(part.code ? part.text : await rewriteAssetRefsInText(part.text, ctx));
-  }
-  return rewritten.join("\n");
-}
-
-async function rewriteAssetRefsInText(body, ctx) {
-  let out = body;
-
-  const mdMatches = [];
-  const mdRe = /!\[([^\]]*)\]\(([^)\s]+)([^)]*)\)/g;
+  let out = String(body || "");
+  const matches = [];
   let m;
-  while ((m = mdRe.exec(out)) !== null) {
-    mdMatches.push({ full: m[0], alt: m[1], src: m[2], tail: m[3] });
+  ATTR_REF_RE.lastIndex = 0;
+  while ((m = ATTR_REF_RE.exec(out)) !== null) {
+    matches.push({ full: m[0], attr: m[1], src: m[2] });
   }
-  for (const item of mdMatches) {
-    const next = await ctx.assets.register(item.src, ctx);
-    if (next !== item.src) {
-      out = replaceAllLiteral(out, item.full, `![${item.alt}](${next}${item.tail})`);
+  for (const item of matches) {
+    if (!item.src) continue;
+    let next = item.src;
+    try {
+      next = await ctx.assets.register(item.src, ctx);
+    } catch (e) {
+      ctx.warnings.push(`资源处理失败：${item.src}`);
     }
+    if (next !== item.src) out = replaceAllLiteral(out, item.full, `${item.attr}="${next}"`);
   }
-
-  // 附件在思源里是普通链接：[文件名](assets/xxx.pdf "文件名")
-  const linkMatches = [];
-  const linkRe = /(?<![!\\])\[([^\]]*)\]\(([^)\s]+)([^)]*)\)/g;
-  while ((m = linkRe.exec(out)) !== null) {
-    if (!looksLikeAssetRef(m[2])) continue;
-    linkMatches.push({ full: m[0], text: m[1], src: m[2], tail: m[3] });
-  }
-  for (const item of linkMatches) {
-    const next = await ctx.assets.register(item.src, ctx);
-    if (next !== item.src) {
-      out = replaceAllLiteral(out, item.full, `[${item.text}](${next}${item.tail})`);
-    }
-  }
-
-  const htmlMatches = [];
-  const htmlRe = /(src|href|data-href|poster)="([^"]+)"/g;
-  while ((m = htmlRe.exec(out)) !== null) {
-    htmlMatches.push({ full: m[0], attr: m[1], src: m[2] });
-  }
-  for (const item of htmlMatches) {
-    const next = await ctx.assets.register(item.src, ctx);
-    if (next !== item.src) {
-      out = replaceAllLiteral(out, item.full, `${item.attr}="${next}"`);
-    }
-  }
-
   return out;
 }
 
 module.exports = {
   AssetStore,
-  looksLikeAssetRef,
   rewriteAssetRefs,
-  rewriteAssetRefsInText,
 };

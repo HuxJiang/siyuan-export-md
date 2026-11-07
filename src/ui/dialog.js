@@ -1,6 +1,8 @@
 /*
  * siyuan-export-md — 导出对话框：表单、进度、下载（由插件实例调用）
- * 由单文件 index.js 按功能拆分而来，业务代码保持原样。
+ *
+ * 正文一律是 HTML，面板上不再有公式格式 / 表格格式 / rawhtml 短代码这些
+ * Markdown 相关开关。
  */
 "use strict";
 
@@ -55,17 +57,6 @@ function openDialog(plugin, protyle) {
       <label style="width:82px;color:var(--b3-theme-on-surface-variant);">文档 ID</label>
       <input id="syDocId" class="b3-text-field fn__flex-1" placeholder="留空则自动取当前打开的文档" value="${escapeHtml(docId)}" />
     </div>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <label style="width:82px;color:var(--b3-theme-on-surface-variant);">公式</label>
-      <select id="syMath" class="b3-select" style="width:170px;">
-        <option value="data-latex">data-latex（配 KaTeX 脚本）</option>
-        <option value="raw">$$ 原生（主题自带 MathJax）</option>
-      </select>
-      <select id="syTable" class="b3-select" style="width:230px;">
-        <option value="html">表格：HTML（保留合并单元格）</option>
-        <option value="gfm">表格：GFM 管道表</option>
-      </select>
-    </div>
     <div style="display:flex;flex-direction:column;gap:8px;padding-left:90px;">
       <label style="display:flex;align-items:center;gap:6px;">
         <input type="checkbox" id="syAssets" class="b3-switch fn__flex-center" />
@@ -75,14 +66,14 @@ function openDialog(plugin, protyle) {
         <input type="checkbox" id="syDemote" class="b3-switch fn__flex-center" />
         <span>标题自动降一级（页面标题占 h1）</span>
       </label>
-      <label id="syRawWrap" style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="syHugoRaw" class="b3-switch fn__flex-center" />
-        <span>Hugo：兜底 HTML 包 {{&lt; rawhtml &gt;}} 短代码（goldmark 已开 unsafe 时不要勾）</span>
-      </label>
       <label style="display:flex;align-items:center;gap:6px;">
         <input type="checkbox" id="syDebug" class="b3-switch fn__flex-center" />
-        <span>在 HTML 片段前加来源注释（便于排查）</span>
+        <span>在每个块前加来源注释（便于排查）</span>
       </label>
+    </div>
+    <div style="color:var(--b3-theme-on-surface-variant);font-size:12px;line-height:1.7;">
+      正文输出为纯 HTML（h1–h6 / p / ul / ol / li / table / pre / blockquote / figure 等），
+      站点需允许内联 HTML（Hugo：<code>markup.goldmark.renderer.unsafe = true</code>）。
     </div>
     <div id="syStatus" style="color:var(--b3-theme-on-surface-variant);min-height:20px;line-height:1.6;">准备就绪</div>
   </div>
@@ -93,7 +84,7 @@ function openDialog(plugin, protyle) {
 </div>`;
 
   const dialog = new Dialog({
-    title: String((self.i18n && self.i18n.dialogTitle) || "导出为 Hexo / Hugo Markdown"),
+    title: String((self.i18n && self.i18n.dialogTitle) || "导出为 Hexo / Hugo（纯 HTML）"),
     content,
     width: "720px",
     destroyCallback: () => {
@@ -111,11 +102,7 @@ function openDialog(plugin, protyle) {
   const docIdEl = body.querySelector("#syDocId");
   const assetsEl = body.querySelector("#syAssets");
   const demoteEl = body.querySelector("#syDemote");
-  const hugoRawEl = body.querySelector("#syHugoRaw");
-  const rawWrapEl = body.querySelector("#syRawWrap");
   const debugEl = body.querySelector("#syDebug");
-  const mathEl = body.querySelector("#syMath");
-  const tableEl = body.querySelector("#syTable");
   const statusEl = body.querySelector("#syStatus");
   const runEl = body.querySelector("#syRun");
   const cancelEl = body.querySelector("#syCancel");
@@ -124,16 +111,11 @@ function openDialog(plugin, protyle) {
   scopeEl.value = self.opts.scope;
   assetsEl.checked = !!self.opts.copyAssets;
   demoteEl.checked = !!self.opts.headingDemote;
-  hugoRawEl.checked = !!self.opts.hugoRawHtmlShortcode;
   debugEl.checked = !!self.opts.debugComment;
-  mathEl.value = self.opts.mathFormat;
-  tableEl.value = self.opts.tableFormat;
   hugoLayoutEl.value = self.opts.hugoLayout;
 
   const syncSite = () => {
-    const isHugo = siteEl.value === "hugo";
-    hugoLayoutEl.style.display = isHugo ? "" : "none";
-    rawWrapEl.style.display = isHugo ? "flex" : "none";
+    hugoLayoutEl.style.display = siteEl.value === "hugo" ? "" : "none";
   };
   const syncScope = () => {
     const isNotebook = scopeEl.value === "notebook";
@@ -162,13 +144,10 @@ function openDialog(plugin, protyle) {
       site: siteEl.value,
       scope: scopeEl.value,
       copyAssets: assetsEl.checked,
-      mathFormat: mathEl.value,
-      tableFormat: tableEl.value,
       headingDemote: demoteEl.checked,
       hugoLayout: hugoLayoutEl.value,
       hugoContentDir: self.opts.hugoContentDir,
       frontmatter: self.opts.frontmatter,
-      hugoRawHtmlShortcode: hugoRawEl.checked,
       debugComment: debugEl.checked
     };
     self.opts = { ...self.opts, ...opts };
@@ -223,7 +202,7 @@ async function doExport(plugin, opts, docIdInput, notebookEl, setStatus) {
   self.download(result.zip, filename);
 
   const warnText = result.warnings.length
-    ? `；${result.warnings.length} 条告警见压缩包内 SIYUAN-EXPORT-REPORT.md`
+    ? `；${result.warnings.length} 条告警见压缩包内 SIYUAN-EXPORT-REPORT.html`
     : "";
   setStatus(`完成：${result.docCount} 篇文档、${result.assetCount} 个资源、共 ${result.fileCount} 个文件${warnText}`);
   showMessage(`导出完成：${result.docCount} 篇文档${warnText}`, 6000);

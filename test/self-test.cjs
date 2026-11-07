@@ -4,8 +4,8 @@
  *   node test/self-test.cjs
  *
  * 1) 按 SiYuan 真实加载方式（window.eval + module.exports.default）验证插件契约；
- * 2) 用假内核 API 跑一遍端到端导出，检查公式/表格/资源/zip 产物；
- * 3) 校验若干纯函数（kramdown 清洗、标题降级、ASCII 资源名、Front Matter）。
+ * 2) 用假内核 API 跑一遍端到端导出，检查正文是否全部是 HTML、资源是否重写、zip 产物；
+ * 3) 校验纯函数（公式容器、HTML 压缩、命名、Front Matter）。
  */
 
 "use strict";
@@ -15,6 +15,24 @@ const path = require("path");
 const vm = require("vm");
 
 const ROOT = path.resolve(__dirname, "..");
+
+/** jsdom 装在 test/node_modules 或项目根 node_modules 都能用 */
+function loadJsdom() {
+  for (const dir of [path.join(__dirname, "node_modules", "jsdom"), path.join(ROOT, "node_modules", "jsdom")]) {
+    try {
+      return require(dir);
+    } catch (e) {
+      /* 换下一个位置 */
+    }
+  }
+  throw new Error("缺少 jsdom：在项目根执行 npm i jsdom");
+}
+
+const { JSDOM } = loadJsdom();
+const dom = new JSDOM("<!doctype html><html><body></body></html>");
+global.DOMParser = dom.window.DOMParser;
+global.document = dom.window.document;
+
 const { installXhrStub } = require("./xhr-stub.cjs");
 installXhrStub(ROOT, "siyuan-export-md"); // 加载器会同步 XHR 读 src/ 模块
 const CODE = fs.readFileSync(path.join(ROOT, "index.js"), "utf8");
@@ -93,63 +111,41 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   const names = plugin.calls.map((c) => c[0]);
   check("onload 注册顶栏", names.includes("addTopBar"));
   check("onload 注册命令", names.includes("addCommand"));
+  check(
+    "默认选项里没有 Markdown 专属开关",
+    !("mathFormat" in exportsObj.__internals.DEFAULT_OPTIONS) &&
+      !("tableFormat" in exportsObj.__internals.DEFAULT_OPTIONS) &&
+      !("hugoRawHtmlShortcode" in exportsObj.__internals.DEFAULT_OPTIONS),
+    JSON.stringify(exportsObj.__internals.DEFAULT_OPTIONS)
+  );
 
   /* ---------------------------------------------------------------- *
    * 2. 纯函数
    * ---------------------------------------------------------------- */
   const I = exportsObj.__internals;
 
-  section("kramdown 清洗");
-  const raw =
-    "- 一级 {: id=\"20240101120000-abc1234\"}\n  - 二级 ((20240101120000-def5678 \"锚文字\"))\n\n" +
-    "公式引用 ((20240101120000-hij9012)) 结束\n\n" +
-    "```ts\nconst a = 1;\n```";
-  const cleaned = I.cleanKramdown(raw);
-  check("去掉 IAL 私有属性", !cleaned.includes("{:"), cleaned);
-  check("块引用保留锚文字", cleaned.includes("锚文字"));
-  check("无锚文字块引用被清掉", !cleaned.includes("hij9012"));
-  check("代码围栏保持完整", cleaned.includes("```ts") && cleaned.includes("const a = 1;"));
-
-  section("公式转换（data-latex 契约）");
-  const md = [
-    "行内：$x_i$ 与价格 $5 和 $10 元，还有 $a_b$。",
-    "",
-    "$$",
-    "\\begin{aligned}",
-    "V(s) &= \\sum_a \\pi(a|s) Q(s,a) \\\\",
-    "\\end{aligned}",
-    "$$",
-    "",
-    "代码里的 $x$ 不应转换：",
-    "",
-    "```js",
-    "const p = `$x$`;",
-    "const q = '$y$';",
-    "```",
-    ""
-  ].join("\n");
-  const out = I.applyMathFormat(md, "data-latex");
+  section("公式容器（纯 HTML）");
+  check("LaTeX 空白折叠", I.normalizeLatex("  a_b =\n c  ") === "a_b = c", I.normalizeLatex("  a_b =\n c  "));
   check(
-    "行内公式转 math-inline",
-    out.includes('<span class="math-inline" data-latex="x_i">x\\_i</span>'),
-    out
+    "行内公式输出 data-latex",
+    I.mathInline("x_i") === '<span class="math-inline" data-latex="x_i">x_i</span>',
+    I.mathInline("x_i")
   );
-  check("行内公式下划线已转义", out.includes("x\\_i"));
-  check("金额不被当成公式", out.includes("$5 和 $10"));
   check(
-    "块级公式转 math-block",
-    out.includes(
-      '<div class="math-block" data-latex="\\begin{aligned} V(s) &amp;= \\sum_a \\pi(a|s) Q(s,a) \\\\ \\end{aligned}">'
-    ),
-    out
+    "块级公式输出 math-block",
+    I.mathBlock("a & b") === '<div class="math-block" data-latex="a &amp; b">a &amp; b</div>',
+    I.mathBlock("a & b")
   );
-  check("代码围栏内公式不转换", out.includes("`$x$`") && out.includes("'$y$'"));
 
-  section("空行整理");
-  const messy = "a\n\n\n\nb\n\n```\nc\n\n\nd\n```\n";
-  const tidy = I.normalizeMarkdownWhitespace(messy);
-  check("正文连续空行折叠", tidy.includes("a\n\nb"));
-  check("代码块内空行保留", tidy.includes("c\n\n\nd"));
+  section("HTML 压缩（CommonMark 里 HTML 块遇空行即结束）");
+  check(
+    "正文连续空行折叠",
+    I.compactHtml("<div>a</div>\n\n\n<div>b</div>") === "<div>a</div>\n<div>b</div>",
+    JSON.stringify(I.compactHtml("<div>a</div>\n\n\n<div>b</div>"))
+  );
+  const preHtml = I.compactHtml("<pre><code>a\n\nb</code></pre>");
+  check("代码块内空行不被删", !/\n[ \t]*\n/.test(preHtml), JSON.stringify(preHtml));
+  check("代码块空行换成 &#32;", preHtml.includes("&#32;"), JSON.stringify(preHtml));
 
   section("命名与路径");
   check("slug 去掉非法字符", I.slugify("A/B: c?") === "A-B-c", I.slugify("A/B: c?"));
@@ -177,14 +173,53 @@ check("暴露自测内部函数", !!exportsObj.__internals);
    * ---------------------------------------------------------------- */
   section("端到端导出");
 
-  const KRAMDOWN = {
-    b1: "# 标题 A",
-    b2: "行内公式 $x_i$ 与 **粗体**",
-    b3: "$$\na_b = c\n$$",
-    b4: "![图](assets/pic.png)",
-    b5: "| a | b |\n| --- | --- |\n| 1 | 2 |",
-    b6: "[报告.pdf](assets/报告.pdf \"报告.pdf\")",
-    b8: "![坏图](assets/broken.png)"
+  const DOMS = {
+    b0: '<div data-node-id="b0" data-type="NodeToc"></div>',
+    b1:
+      '<div data-node-id="b1" data-type="NodeHeading" class="h2" data-subtype="h2">' +
+      '<div contenteditable="true">标题 A</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+    b2:
+      '<div data-node-id="b2" data-type="NodeParagraph" class="p">' +
+      '<div contenteditable="true">行内公式 <span data-type="inline-math" data-content="x_i">x_i</span> 与 <strong>粗体</strong></div>' +
+      '<div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+    b3: '<div data-node-id="b3" data-type="NodeMathBlock" data-content="a_b = c"><div class="katex">a_b = c</div></div>',
+    b4:
+      '<div data-node-id="b4" data-type="NodeImage" class="img">' +
+      '<img src="assets/pic.png" alt="图"><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+    b5:
+      '<div data-node-id="b5" data-type="NodeTable"><div class="table"><table>' +
+      '<colgroup><col style="width:60px"><col></colgroup>' +
+      '<thead><tr><th colspan="2">合并表头</th></tr></thead>' +
+      '<tbody><tr><td rowspan="2">A</td><td>B</td></tr>' +
+      '<tr><td><span data-type="inline-math" data-content="x_i">x_i</span></td></tr></tbody>' +
+      "</table></div></div>",
+    b6:
+      '<div data-node-id="b6" data-type="NodeParagraph" class="p"><div contenteditable="true">' +
+      '<span data-type="a" data-href="assets/报告.pdf" title="报告.pdf">报告.pdf</span></div></div>',
+    b7:
+      '<div data-node-id="b7" data-type="NodeList" data-subtype="o" class="list">' +
+      '<div data-node-id="b7a" data-type="NodeListItem" class="li">' +
+      '<div class="protyle-action protyle-action--order" contenteditable="false">1.</div>' +
+      '<div data-node-id="b7ap" data-type="NodeParagraph" class="p"><div>第一条</div></div>' +
+      '<div data-node-id="b7an" data-type="NodeList" data-subtype="u" class="list">' +
+      '<div data-node-id="b7an1" data-type="NodeListItem" class="li">' +
+      '<div class="protyle-action" contenteditable="false">•</div>' +
+      '<div class="p"><div>嵌套项</div></div></div></div>' +
+      '<div class="protyle-attr" contenteditable="false">\u200b</div></div>' +
+      '<div data-node-id="b7b" data-type="NodeListItem" class="li">' +
+      '<div class="protyle-action protyle-action--order" contenteditable="false">2.</div>' +
+      '<div class="p"><div>第二条</div></div></div></div>',
+    b8:
+      '<div data-node-id="b8" data-type="NodeCodeBlock" data-subtype="js" class="code-block">' +
+      '<div class="protyle-action" contenteditable="false"><span>js</span></div>' +
+      '<div class="protyle-linenumber" contenteditable="false">1\n2\n3</div>' +
+      '<pre class="hljs language-js"><code>const a = 1;\n\nconst b = 2;</code></pre></div>',
+    q1:
+      '<div data-node-id="q1" data-type="NodeQueryEmbed">' +
+      '<div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+    b9:
+      '<div data-node-id="b9" data-type="NodeParagraph" class="p"><div contenteditable="true">' +
+      '<img src="assets/broken.png" alt="坏图"></div></div>'
   };
 
   const sqlRows = (stmt) => {
@@ -204,22 +239,20 @@ check("暴露自测内部函数", !!exportsObj.__internals);
     }
     if (/parent_id = 'doc1'/.test(stmt)) {
       return [
-        { id: "b1", type: "h", subtype: "h2", sort: 1 },
-        { id: "b2", type: "p", subtype: "", sort: 2 },
-        { id: "b3", type: "m", subtype: "", sort: 3 },
-        { id: "b4", type: "img", subtype: "", sort: 4 },
-        { id: "b5", type: "t", subtype: "", sort: 5 },
-        { id: "b6", type: "p", subtype: "", sort: 6 }
+        { id: "b0", type: "toc", subtype: "", sort: 1 },
+        { id: "b1", type: "h", subtype: "h2", sort: 2 },
+        { id: "b2", type: "p", subtype: "", sort: 3 },
+        { id: "b3", type: "m", subtype: "", sort: 4 },
+        { id: "b4", type: "img", subtype: "", sort: 5 },
+        { id: "b5", type: "t", subtype: "", sort: 6 },
+        { id: "b6", type: "p", subtype: "", sort: 7 },
+        { id: "b7", type: "l", subtype: "o", sort: 8 },
+        { id: "b8", type: "c", subtype: "js", sort: 9 }
       ];
     }
     // 思源 3.8.x 的 assets.path 是相对路径，文件在 data/assets/ 下
-    if (/FROM assets WHERE name = 'pic.png'/.test(stmt)) {
-      return [{ path: "assets/pic.png", box: "box1" }];
-    }
-    if (/FROM assets WHERE name = '报告.pdf'/.test(stmt)) {
-      return [{ path: "assets/报告.pdf", box: "box1" }];
-    }
-    // 短代码 / 来源注释开关：只含一个查询嵌入块（HTML 片段，不依赖 DOMParser）
+    if (/FROM assets WHERE name = 'pic.png'/.test(stmt)) return [{ path: "assets/pic.png", box: "box1" }];
+    if (/FROM assets WHERE name = '报告.pdf'/.test(stmt)) return [{ path: "assets/报告.pdf", box: "box1" }];
     if (/FROM blocks WHERE id = 'doc2'/.test(stmt)) {
       return [
         {
@@ -234,10 +267,7 @@ check("暴露自测内部函数", !!exportsObj.__internals);
         }
       ];
     }
-    if (/parent_id = 'doc2'/.test(stmt)) {
-      return [{ id: "q1", type: "query_embed", subtype: "", sort: 1 }];
-    }
-    // 资源缺失：图片读不到时只告警、不抛异常
+    if (/parent_id = 'doc2'/.test(stmt)) return [{ id: "q1", type: "query_embed", subtype: "", sort: 1 }];
     if (/FROM blocks WHERE id = 'doc3'/.test(stmt)) {
       return [
         {
@@ -252,9 +282,7 @@ check("暴露自测内部函数", !!exportsObj.__internals);
         }
       ];
     }
-    if (/parent_id = 'doc3'/.test(stmt)) {
-      return [{ id: "b8", type: "p", subtype: "", sort: 1 }];
-    }
+    if (/parent_id = 'doc3'/.test(stmt)) return [{ id: "b9", type: "p", subtype: "", sort: 1 }];
     return [];
   };
 
@@ -269,8 +297,7 @@ check("暴露自测内部函数", !!exportsObj.__internals);
 
     if (url === "/api/query/sql") return respond(sqlRows(req.stmt));
     if (url === "/api/block/getChildBlocks") return respond([]);
-    if (url === "/api/block/getBlockKramdown") return respond({ kramdown: KRAMDOWN[req.id] || "" });
-    if (url === "/api/block/getBlockDOM") return respond({ dom: `<div data-node-id="${req.id}"><p>x</p></div>` });
+    if (url === "/api/block/getBlockDOM") return respond({ dom: DOMS[req.id] || "" });
     if (url === "/api/file/getFile") {
       const binary = (bytes) => ({
         ok: true,
@@ -293,94 +320,84 @@ check("暴露自测内部函数", !!exportsObj.__internals);
 
   global.fetch = fakeFetch;
 
-  const opts = {
-    ...I.DEFAULT_OPTIONS,
-    site: "hugo",
-    hugoLayout: "file",
-    tableFormat: "gfm",
-    mathFormat: "data-latex",
-    headingDemote: true
-  };
+  const opts = { ...I.DEFAULT_OPTIONS, site: "hugo", hugoLayout: "file", headingDemote: true };
 
-  const result = await I.exportSite(["doc1"], opts, "笔记本", null);
-  const mdEntry = result.zip ? null : null;
-  const mdPath = "content/notes/测试文档.md";
-
-  // 从 zip 里取回 markdown：直接扫描字节，验证路径与内容都已写入
-  const zipText = Buffer.from(result.zip).toString("utf8");
-  check("zip 内含 markdown", zipText.includes(mdPath), mdPath);
-  check("zip 内含资源", zipText.includes("static/siyuan/测试文档/pic.png"));
-  check("zip 内含报告", zipText.includes("SIYUAN-EXPORT-REPORT.md"));
-  check("资源二进制已进包", Buffer.from(result.zip).includes(Buffer.from([137, 80, 78, 71])));
-
-  // 重新导出单篇文档，直接检查 markdown 文本
   const single = await I.exportDocument("doc1", opts, new I.AssetStore(), "笔记本");
   const content = single.content;
-  console.log("\n--- 生成的 markdown ---\n" + content + "\n--- end ---\n");
+  console.log("\n--- 生成的内容（纯 HTML 正文） ---\n" + content + "\n--- end ---\n");
 
-  check("Front Matter 标题", content.startsWith('---\ntitle: 测试文档\ndate: 2024-01-01'));
+  check("Front Matter 标题", content.startsWith("---\ntitle: 测试文档\ndate: 2024-01-01"), content.slice(0, 60));
   check("Front Matter toc", content.includes("toc: true"));
   check("标签导出", content.includes("tags: [标签一, 标签二]"));
   check("分类取笔记本", content.includes("categories: [笔记本]"));
-  check("标题降一级（h2 → h3）", content.includes("### 标题 A"), content.split("\n").find((l) => l.startsWith("#")));
-  check("行内公式输出 data-latex", content.includes('<span class="math-inline" data-latex="x_i">x\\_i</span>'));
+  check("正文包在 sy-doc 里", content.includes('<div class="sy-doc">'));
+
+  check("标题输出 h3（h2 降一级）", content.includes('<h3 id="标题-A">标题 A</h3>'), content);
+  check(
+    "段落是 <p>，行内公式与粗体为 HTML",
+    content.includes('<p>行内公式 <span class="math-inline" data-latex="x_i">x_i</span> 与 <strong>粗体</strong></p>'),
+    content
+  );
   check("块级公式输出 math-block", content.includes('<div class="math-block" data-latex="a_b = c">a_b = c</div>'));
-  check("图片路径重写到 static", content.includes("![图](/siyuan/测试文档/pic.png)"), content);
-  check("资源文件名 ASCII", content.includes("pic.png"));
-  check("GFM 表格保留", content.includes("| a | b |"));
-  check("附件链接被重写", /\[报告\.pdf\]\(\/siyuan\/测试文档\/asset-[a-z0-9]+\.pdf "报告\.pdf"\)/.test(content), content);
-  check("资源相对路径已解析（图片可读）", result.assetCount === 2, String(result.assetCount));
-  check("附件二进制已进包", Buffer.from(result.zip).includes(Buffer.from([37, 80, 68, 70])));
+  check("图片块输出 figure + 重写后的 src", content.includes('<figure class="sy-image"><img src="/siyuan/测试文档/pic.png" alt="图"></figure>'), content);
+  check("表格包进 table-wrapper", content.includes('<div class="table-wrapper">'));
+  check("表格保留 colspan", /colspan="2"/.test(content));
+  check("表格保留 rowspan", /rowspan="2"/.test(content));
+  check("表格保留 colgroup", content.includes("<colgroup>"));
+  check("单元格行内公式转 data-latex", content.includes('<span class="math-inline" data-latex="x_i">x_i</span>'));
+  check(
+    "附件链接换成 <a> 且路径重写",
+    /<a href="\/siyuan\/测试文档\/asset-[a-z0-9]+\.pdf" title="报告\.pdf">报告\.pdf<\/a>/.test(content),
+    content
+  );
+  check("有序列表输出 <ol> + <li>", content.includes("<ol><li>第一条<ul><li>嵌套项</li></ul></li><li>第二条</li></ol>"), content);
+  check("代码块输出 pre/code", content.includes('<pre class="code-block" data-lang="js"><code class="language-js">'), content);
+  check("代码块语言取自 subType", content.includes('data-lang="js"'));
+  check("目录输出 nav + 锚点", content.includes('<nav class="sy-toc">') && content.includes('<a href="#标题-A">标题 A</a>'), content);
+
+  check("正文不再出现 Markdown 标题语法", !/^#{1,6} /m.test(content.split("---\n").pop()), content);
+  check("正文不再出现 Markdown 图片语法", !content.includes("!["));
+  check("正文不再出现 GFM 表格分隔行", !content.includes("| --- |"));
+  check("正文不再出现 rawhtml 短代码", !content.includes("{{< rawhtml"));
+  check("整篇没有连续空行（HTML 块才不会被截断）", !/\n[ \t]*\n/.test(content), content);
+  check("不残留编辑器私有属性", !/data-node-id|data-node-index|protyle-|contenteditable/.test(content), content);
+
+  const result = await I.exportSite(["doc1"], opts, "笔记本", null);
+  const zipText = Buffer.from(result.zip).toString("utf8");
+  check("zip 内含内容文件（仍是 .md）", zipText.includes("content/notes/测试文档.md"));
+  check("zip 内含资源", zipText.includes("static/siyuan/测试文档/pic.png"));
+  check("zip 内含 HTML 报告", zipText.includes("SIYUAN-EXPORT-REPORT.html"));
+  check("资源二进制已进包", Buffer.from(result.zip).includes(Buffer.from([137, 80, 78, 71])));
+  check("资源计数", result.assetCount === 2, String(result.assetCount));
 
   /* ---------------------------------------------------------------- *
-   * 3.1 HTML 片段开关 / 失败降级
+   * 3.1 来源注释 / 失败降级
    * ---------------------------------------------------------------- */
-  section("rawhtml 短代码与来源注释");
-  const shortOpts = { ...opts, hugoRawHtmlShortcode: true };
-  const wrapped = await I.exportDocument("doc2", shortOpts, new I.AssetStore(), "笔记本");
-  check(
-    "顶层 HTML 片段被包一层 rawhtml",
-    (wrapped.content.match(/\{\{< rawhtml >\}\}/g) || []).length === 1 &&
-      wrapped.content.includes("siyuan-query-embed"),
-    wrapped.content
-  );
-  check("rawhtml 短代码不嵌套", !/\{\{< rawhtml >\}\}[\s\S]*\{\{< rawhtml >\}\}/.test(wrapped.content));
-
-  const plainDoc = await I.exportDocument("doc2", opts, new I.AssetStore(), "笔记本");
-  check("开关关闭时不出现短代码", !plainDoc.content.includes("rawhtml"), plainDoc.content);
-
+  section("来源注释与降级");
   const commented = await I.exportDocument("doc2", { ...opts, debugComment: true }, new I.AssetStore(), "笔记本");
   check("来源注释带块类型", commented.content.includes("<!-- siyuan:query_embed -->"), commented.content);
+  check("查询嵌入占位是 HTML", commented.content.includes('<div class="sy-placeholder"'));
 
-  const markdownOnly = await I.exportDocument("doc3", { ...opts, debugComment: true }, new I.AssetStore(), "笔记本");
-  check("Markdown 片段不加来源注释", !markdownOnly.content.includes("<!-- siyuan:"), markdownOnly.content);
+  const plainDoc = await I.exportDocument("doc2", opts, new I.AssetStore(), "笔记本");
+  check("开关关闭时不出现注释", !plainDoc.content.includes("<!-- siyuan:"), plainDoc.content);
 
-  section("失败降级不抛异常");
   const brokenStore = new I.AssetStore();
   const broken = await I.exportDocument("doc3", opts, brokenStore, "笔记本");
-  check("资源读不到时保留原相对路径", broken.content.includes("assets/broken.png"), broken.content);
+  check("资源读不到时保留原相对路径", broken.content.includes('src="assets/broken.png"'), broken.content);
   check(
-    "资源读不到时记录到资源失败清单",
+    "资源读不到时记录到失败清单",
     brokenStore.failures.some((w) => w.includes("资源未找到")),
     JSON.stringify(brokenStore.failures)
   );
 
-  const unit = I.wrapHtmlFragment('<div class="x">a</div>\n\n', { opts: { ...I.DEFAULT_OPTIONS, hugoRawHtmlShortcode: true }, inHtml: false }, "html");
-  check("wrapHtmlFragment 包裹 HTML", unit === "{{< rawhtml >}}\n<div class=\"x\">a</div>\n{{< /rawhtml >}}\n\n", unit);
-  const nested = I.wrapHtmlFragment('<div class="x">a</div>\n\n', { opts: { ...I.DEFAULT_OPTIONS, hugoRawHtmlShortcode: true }, inHtml: true }, "html");
-  check("容器内不再包裹", nested === '<div class="x">a</div>\n\n', nested);
-  const mdPassthrough = I.wrapHtmlFragment("## 标题\n\n", { opts: { ...I.DEFAULT_OPTIONS, hugoRawHtmlShortcode: true }, inHtml: false }, "h");
-  check("Markdown 原样返回", mdPassthrough === "## 标题\n\n", mdPassthrough);
-
-  /* ---------------------------------------------------------------- *
-   * 4. 表格 HTML / callout 分支（需要 DOMParser，缺失时跳过）
-   * ---------------------------------------------------------------- */
-  section("DOM 分支");
-  if (typeof DOMParser === "undefined") {
-    console.log("  skip 当前 Node 无 DOMParser，表格 HTML 与 callout 分支未在此验证（需在思源内实测）");
-  } else {
-    check("DOMParser 可用", true);
-  }
+  section("renderElement 单元");
+  const el = new DOMParser().parseFromString(
+    '<div data-type="NodeParagraph"><div contenteditable="true">A<em>B</em><span data-type="tag">#C#</span></div></div>',
+    "text/html"
+  ).body.firstElementChild;
+  const ctx = { opts: { ...I.DEFAULT_OPTIONS }, warnings: [], headings: [], headingIds: new Map(), inHtml: true };
+  const html = I.renderElement(el, ctx);
+  check("行内 em 保留语义", html === "<p>A<em>B</em><span class=\"tag\">#C#</span></p>", html);
 
   console.log(`\n通过 ${passed}，失败 ${failed}`);
   process.exit(failed ? 1 : 0);

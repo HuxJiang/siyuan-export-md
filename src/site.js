@@ -1,39 +1,69 @@
 /*
  * siyuan-export-md — 整站导出：多文档打包、资源收集、导出报告
- * 由单文件 index.js 按功能拆分而来，业务代码保持原样。
+ *
+ * 报告也输出 HTML（SIYUAN-EXPORT-REPORT.html），和正文契约保持一致：
+ * 包里不再有任何 Markdown 片段。
  */
 "use strict";
 
 const { exportDocument } = require("./document");
 const { AssetStore } = require("./assets");
 const { buildZip } = require("./zip");
+const { escapeHtml } = require("./utils");
 
-const HUGO_RAWHTML_SHORTCODE = `{{- /* 由「思源 Markdown 导出」插件生成：用于在 Hugo 中渲染 HTML 片段 */ -}}
-{{- .Inner | safeHTML -}}
-`;
+const REPORT_STYLE = [
+  "body{font:14px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;",
+  "max-width:920px;margin:0 auto;padding:32px 20px;color:#222;background:#fff}",
+  "h1{font-size:22px;margin:0 0 16px}h2{font-size:16px;margin:28px 0 10px;border-bottom:1px solid #eee;padding-bottom:6px}",
+  "ul{margin:0;padding-left:20px}li{margin:4px 0}code{background:#f6f6f6;padding:1px 4px;border-radius:3px}",
+  ".meta{color:#666}.warn{color:#b26b00}"
+].join("");
 
-const SITE_CONFIG_HINT = `## 站点侧配置
+const SITE_CONFIG_HINT = [
+  "<h2>站点侧配置</h2>",
+  "<h3>Hugo</h3>",
+  "<p>正文全部是 HTML，必须允许内联 HTML，否则 goldmark 会把公式容器、表格、callout 丢掉：</p>",
+  "<pre><code>[markup.goldmark.renderer]\nunsafe = true</code></pre>",
+  "<p>公式由站点侧脚本按 <code>data-latex</code> 渲染 <code>.math-block</code> / <code>.math-inline</code>；",
+  "如果模板用 <code>{{ if in .Content \"math-block\" }}</code> 判断是否加载 KaTeX，要同时判断 <code>math-inline</code>。</p>",
+  "<h3>Hexo</h3>",
+  "<p>默认的 marked 渲染器会把裸 HTML 原样透传；只需保证不在站点层再做一次 markdown 渲染：</p>",
+  "<pre><code>markdown:\n  gfm: true\n  breaks: false</code></pre>"
+].join("\n");
 
-### Hugo
+function listItems(items, className) {
+  if (!items.length) return "<p>无</p>";
+  return `<ul${className ? ` class="${className}"` : ""}>\n${items
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join("\n")}\n</ul>`;
+}
 
-\`\`\`toml
-[markup.goldmark.renderer]
-unsafe = true          # 必须：否则正文里的 HTML（公式容器、表格、callout）会被丢弃
-\`\`\`
-
-公式：模板里引入 KaTeX 与 \`katex-render.js\`（按 \`data-latex\` 渲染 \`.math-block/.math-inline\`）。
-若模板用 \`{{ if in .Content "math-block" }}\` 判断是否加载 KaTeX，还要把 \`math-inline\` 一起判断，
-否则只有行内公式的文档不会加载 KaTeX。
-
-### Hexo
-
-\`\`\`yml
-post_asset_folder: true
-markdown:
-  gfm: true
-  breaks: false
-\`\`\`
-`;
+function buildReport({ opts, docCount, fileCount, assetCount, warnings }) {
+  return [
+    "<!doctype html>",
+    '<html lang="zh-CN">',
+    "<head>",
+    '<meta charset="utf-8">',
+    "<title>思源导出报告</title>",
+    `<style>${REPORT_STYLE}</style>`,
+    "</head>",
+    "<body>",
+    "<h1>思源导出报告</h1>",
+    '<ul class="meta">',
+    `<li>站点类型：${escapeHtml(opts.site)}</li>`,
+    "<li>正文格式：纯 HTML（无 Markdown 语法）</li>",
+    `<li>导出文档：${docCount} 篇</li>`,
+    `<li>导出文件：${fileCount} 个（含资源 ${assetCount} 个）</li>`,
+    `<li>导出时间：${escapeHtml(new Date().toLocaleString())}</li>`,
+    "</ul>",
+    "<h2>告警</h2>",
+    listItems(warnings, "warn"),
+    SITE_CONFIG_HINT,
+    "</body>",
+    "</html>",
+    ""
+  ].join("\n");
+}
 
 async function exportSite(docIds, opts, notebookName, onProgress) {
   const assets = new AssetStore();
@@ -58,32 +88,14 @@ async function exportSite(docIds, opts, notebookName, onProgress) {
   assetFiles.forEach((data, path) => files.push({ path, data }));
   assets.failures.forEach((f) => warnings.push(f));
 
-  if (opts.site === "hugo" && opts.hugoRawHtmlShortcode) {
-    files.push({
-      path: "layouts/shortcodes/rawhtml.html",
-      data: new TextEncoder().encode(HUGO_RAWHTML_SHORTCODE)
-    });
-  }
-
-  const report = [
-    "# 导出报告",
-    "",
-    `- 站点类型：${opts.site}`,
-    `- 公式格式：${opts.mathFormat}`,
-    `- 表格格式：${opts.tableFormat}`,
-    `- 导出文档：${docCount} 篇`,
-    `- 导出文件：${files.length} 个（含资源 ${assetFiles.size} 个）`,
-    `- 时间：${new Date().toLocaleString()}`,
-    "",
-    "## 告警",
-    "",
-    warnings.length ? warnings.map((w) => `- ${w}`).join("\n") : "无",
-    "",
-    SITE_CONFIG_HINT,
-    ""
-  ].join("\n");
-
-  files.push({ path: "SIYUAN-EXPORT-REPORT.md", data: new TextEncoder().encode(report) });
+  const report = buildReport({
+    opts,
+    docCount,
+    fileCount: files.length + 1,
+    assetCount: assetFiles.size,
+    warnings
+  });
+  files.push({ path: "SIYUAN-EXPORT-REPORT.html", data: new TextEncoder().encode(report) });
 
   return {
     zip: buildZip(files),
@@ -95,7 +107,8 @@ async function exportSite(docIds, opts, notebookName, onProgress) {
 }
 
 module.exports = {
-  HUGO_RAWHTML_SHORTCODE,
+  REPORT_STYLE,
   SITE_CONFIG_HINT,
+  buildReport,
   exportSite,
 };

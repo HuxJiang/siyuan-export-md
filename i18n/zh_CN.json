@@ -1,7 +1,7 @@
 {
-  "topbarTitle": "导出 Markdown",
-  "commandTitle": "导出为 Markdown（Hexo/Hugo）",
-  "exportMarkdown": "导出为 Markdown（Hexo/Hugo）",
-  "dialogTitle": "导出为 Hexo / Hugo Markdown",
-  "menuExport": "导出为 Markdown"
+  "topbarTitle": "导出 HTML",
+  "commandTitle": "导出为 HTML（Hexo/Hugo）",
+  "exportMarkdown": "导出为 HTML（Hexo/Hugo）",
+  "dialogTitle": "导出为 Hexo / Hugo（纯 HTML 正文）",
+  "menuExport": "导出为 HTML"
 }

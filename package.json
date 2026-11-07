@@ -1,0 +1,12 @@
+{
+  "name": "siyuan-export-md",
+  "version": "0.3.0",
+  "private": true,
+  "description": "SiYuan plugin: export documents as HTML body content files for Hexo/Hugo",
+  "scripts": {
+    "test": "node test/loader-test.cjs && node test/self-test.cjs && node test/dom-test.cjs"
+  },
+  "dependencies": {
+    "jsdom": "^31.0.0"
+  }
+}

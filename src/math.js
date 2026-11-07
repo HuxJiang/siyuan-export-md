@@ -1,14 +1,16 @@
 /*
- * siyuan-export-md — 公式：data-latex 契约与 Markdown 内公式转换
- * 由单文件 index.js 按功能拆分而来，业务代码保持原样。
+ * siyuan-export-md — 公式：统一输出 data-latex 的 HTML 容器
+ *
+ * 纯 HTML 导出不需要再做 Markdown 转义（不再有「行内公式的可见文本会被 Markdown
+ * 引擎当斜体」这个问题），可见文本就是 escape 后的 LaTeX 源码，交给站点侧的
+ * KaTeX 脚本按 data-latex 渲染。
  */
 "use strict";
 
-const { stripZeroWidth, escapeHtml, MD_ESCAPABLE } = require("./utils");
-const { splitFencedCode, splitInlineCode } = require("./markdown-text");
+const { stripZeroWidth } = require("./utils");
 
 /* ------------------------------------------------------------------ *
- * 3. 公式：data-latex 契约
+ * 2. 公式
  * ------------------------------------------------------------------ */
 
 function normalizeLatex(latex) {
@@ -18,91 +20,82 @@ function normalizeLatex(latex) {
     .trim();
 }
 
-/**
- * 行内公式的可见降级文本。
- * data-latex 给 KaTeX；span 里的文本仍会被 Markdown 引擎解析，
- * 所以 _ * ` 以及「反斜杠 + 标点」都要转义，否则下划线会被当成斜体。
- */
-function visibleLatexText(latex) {
-  const esc = escapeHtml(latex);
-  let out = "";
-  for (let i = 0; i < esc.length; i++) {
-    const ch = esc[i];
-    if (ch === "\\" && i + 1 < esc.length && MD_ESCAPABLE.has(esc[i + 1])) {
-      out += "\\\\";
-    } else if (ch === "_" || ch === "*" || ch === "`") {
-      out += "\\" + ch;
-    } else {
-      out += ch;
-    }
-  }
-  return out;
+/** 行内公式元素；空公式返回 null。 */
+function mathInlineEl(doc, latex) {
+  const tex = normalizeLatex(latex);
+  if (!tex || !doc) return null;
+  const span = doc.createElement("span");
+  span.className = "math-inline";
+  span.setAttribute("data-latex", tex);
+  span.textContent = tex;
+  return span;
+}
+
+/** 块级公式元素；空公式返回 null。 */
+function mathBlockEl(doc, latex) {
+  const tex = normalizeLatex(latex);
+  if (!tex || !doc) return null;
+  const div = doc.createElement("div");
+  div.className = "math-block";
+  div.setAttribute("data-latex", tex);
+  div.textContent = tex;
+  return div;
 }
 
 function mathInline(latex) {
   const tex = normalizeLatex(latex);
   if (!tex) return "";
-  return `<span class="math-inline" data-latex="${escapeHtml(tex)}">${visibleLatexText(tex)}</span>`;
+  return `<span class="math-inline" data-latex="${escapeAttr(tex)}">${escapeText(tex)}</span>`;
 }
 
 function mathBlock(latex) {
   const tex = normalizeLatex(latex);
   if (!tex) return "";
-  return `<div class="math-block" data-latex="${escapeHtml(tex)}">${escapeHtml(tex)}</div>`;
+  return `<div class="math-block" data-latex="${escapeAttr(tex)}">${escapeText(tex)}</div>`;
 }
 
-function convertMathOutsideCode(text) {
-  let out = text;
-
-  // 块级：$$…$$（可跨行）
-  out = out.replace(/\$\$([\s\S]*?)\$\$/g, (all, tex) => {
-    const body = normalizeLatex(tex);
-    return body ? `\n\n${mathBlock(body)}\n\n` : all;
-  });
-
-  // 块级：\[…\]
-  out = out.replace(/\\\[([\s\S]*?)\\\]/g, (all, tex) => {
-    const body = normalizeLatex(tex);
-    return body ? `\n\n${mathBlock(body)}\n\n` : all;
-  });
-
-  // 行内：$…$（遵循 pandoc 规则：内侧不能紧贴空白，避免把金额当公式）
-  out = out.replace(/(^|[^\\$])\$(?!\$)([^\n$]+?)\$(?!\$)/g, (all, lead, tex) => {
-    const body = normalizeLatex(tex);
-    if (!body) return all;
-    if (/^\s/.test(tex) || /\s$/.test(tex)) return all;
-    return lead + mathInline(body);
-  });
-
-  // 行内：\(…\)
-  out = out.replace(/\\\(([\s\S]*?)\\\)/g, (all, tex) => {
-    const body = normalizeLatex(tex);
-    return body ? mathInline(body) : all;
-  });
-
-  return out;
+function escapeAttr(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function convertMathInText(text) {
-  return splitInlineCode(text)
-    .map((piece) => (piece.code ? piece.text : convertMathOutsideCode(piece.text)))
-    .join("");
+function escapeText(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function applyMathFormat(md, format) {
-  if (format === "raw") return md;
-  if (!md || md.indexOf("$") < 0 && md.indexOf("\\(") < 0 && md.indexOf("\\[") < 0) return md;
-  return splitFencedCode(md)
-    .map((part) => (part.code ? part.text : convertMathInText(part.text)))
-    .join("\n");
+/**
+ * 从公式块 DOM 里取 LaTeX：
+ *   data-content（思源私有属性）→ 任意子节点的 data-content →
+ *   KaTeX 的 annotation → 最后退回纯文本。
+ */
+function extractLatex(el) {
+  if (!el) return "";
+  let tex = "";
+  if (el.getAttribute) tex = el.getAttribute("data-content") || "";
+  if (!tex && el.querySelector) {
+    const holder = el.querySelector("[data-content]");
+    if (holder) tex = holder.getAttribute("data-content") || "";
+  }
+  if (!tex && el.querySelector) {
+    const annot = el.querySelector('annotation[encoding="application/x-tex"]');
+    if (annot) tex = annot.textContent || "";
+  }
+  if (!tex) tex = el.textContent || "";
+  return normalizeLatex(tex);
+}
+
+/** 图表块：mermaid 判断（subType 之外再看源码开头） */
+const MERMAID_HEAD_RE = /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|mindmap|timeline|journey|quadrantChart|gitGraph|sankey-beta|xychart-beta)\b/;
+
+function looksLikeMermaid(text) {
+  return MERMAID_HEAD_RE.test(String(text || "").trim());
 }
 
 module.exports = {
   normalizeLatex,
-  visibleLatexText,
+  mathInlineEl,
+  mathBlockEl,
   mathInline,
   mathBlock,
-  convertMathOutsideCode,
-  convertMathInText,
-  applyMathFormat,
+  extractLatex,
+  looksLikeMermaid,
 };

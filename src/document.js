@@ -1,20 +1,29 @@
 /*
- * siyuan-export-md — 文档级导出：元信息、Front Matter、目录、正文收尾
- * 由单文件 index.js 按功能拆分而来，业务代码保持原样。
+ * siyuan-export-md — 文档级导出：元信息、Front Matter、目录、正文 HTML 组装
+ *
+ * 产物仍是 .md 文件（Hugo / Hexo 的 content 文件），但正文是一整段纯 HTML：
+ *    <div class="sy-doc"> … </div>
+ * 没有任何 Markdown 语法。CommonMark 的 HTML 块遇空行即结束，所以整段正文
+ * 由 compactHtml 压掉连续空行；<pre> 内的空行换成 &#32; 保留代码排版。
  */
 "use strict";
 
 const { getDocRow, getChildBlocks, listDocsOfNotebook, normalizeType } = require("./api");
-const { stripZeroWidth, formatDate, yamlString, yamlList } = require("./utils");
+const {
+  stripZeroWidth,
+  compactHtml,
+  escapeHtml,
+  formatDate,
+  yamlString,
+  yamlList,
+  TOC_PLACEHOLDER
+} = require("./utils");
 const { slugify, docPaths } = require("./naming");
-const { applyMathFormat } = require("./math");
-const { normalizeMarkdownWhitespace } = require("./markdown-text");
 const { renderBlockSafe } = require("./render/dispatch");
 const { rewriteAssetRefs } = require("./assets");
-const { TOC_PLACEHOLDER } = require("./render/exporters/placeholder");
 
 /* ------------------------------------------------------------------ *
- * 10. 文档 / 整站导出
+ * 1. 文档信息 / Front Matter
  * ------------------------------------------------------------------ */
 
 function parseSiyuanDate(value, fallback) {
@@ -77,23 +86,49 @@ function buildFrontMatter(doc, opts) {
   return lines.join("\n");
 }
 
+/* ------------------------------------------------------------------ *
+ * 2. 目录（HTML）
+ * ------------------------------------------------------------------ */
+
+function buildTocTree(headings) {
+  const minLevel = Math.min(...headings.map((h) => h.level));
+  const root = { level: minLevel - 1, children: [] };
+  const stack = [root];
+  for (const heading of headings) {
+    while (stack.length > 1 && stack[stack.length - 1].level >= heading.level) stack.pop();
+    const node = { id: heading.id, text: heading.text, level: heading.level, children: [] };
+    stack[stack.length - 1].children.push(node);
+    stack.push(node);
+  }
+  return root.children;
+}
+
+function tocList(items) {
+  if (!items.length) return "";
+  const rows = items.map(
+    (item) => `<li><a href="#${escapeHtml(item.id)}">${escapeHtml(item.text)}</a>${tocList(item.children)}</li>`
+  );
+  return `<ul>\n${rows.join("\n")}\n</ul>`;
+}
+
 function renderToc(headings) {
-  if (!headings.length) return "";
-  const top = Math.min(...headings.map((h) => h.level));
-  return headings
-    .map((h) => `${"  ".repeat(Math.max(0, h.level - top))}- ${h.text}`)
-    .join("\n");
+  if (!headings || !headings.length) return "";
+  return `<nav class="sy-toc">\n${tocList(buildTocTree(headings))}\n</nav>`;
+}
+
+/* ------------------------------------------------------------------ *
+ * 3. 正文组装
+ * ------------------------------------------------------------------ */
+
+function wrapDocument(body) {
+  return `<div class="sy-doc">\n${body}\n</div>`;
 }
 
 function finalizeBody(body, ctx) {
-  let out = body.replace(/\r\n?/g, "\n");
+  let out = String(body || "");
+  if (out.includes(TOC_PLACEHOLDER)) out = out.split(TOC_PLACEHOLDER).join(renderToc(ctx.headings));
   out = stripZeroWidth(out);
-  out = applyMathFormat(out, ctx.opts.mathFormat);
-  if (out.includes(TOC_PLACEHOLDER)) {
-    out = out.split(TOC_PLACEHOLDER).join(renderToc(ctx.headings));
-  }
-  out = normalizeMarkdownWhitespace(out);
-  return out.trim();
+  return compactHtml(out);
 }
 
 async function exportDocument(docId, opts, assets, notebookName) {
@@ -101,11 +136,11 @@ async function exportDocument(docId, opts, assets, notebookName) {
   const ctx = {
     opts,
     doc,
-    htmlOnly: false,
-    inHtml: false,
     assets,
     headings: [],
-    warnings: []
+    headingIds: new Map(),
+    warnings: [],
+    inHtml: false
   };
 
   const children = await getChildBlocks(docId);
@@ -118,7 +153,7 @@ async function exportDocument(docId, opts, assets, notebookName) {
   body = await rewriteAssetRefs(body, ctx);
   const main = finalizeBody(body, ctx);
   const paths = docPaths(doc, opts);
-  const content = `${buildFrontMatter(doc, opts)}${main ? "\n" + main + "\n" : ""}`;
+  const content = `${buildFrontMatter(doc, opts)}${main ? wrapDocument(main) + "\n" : ""}`;
   return { path: paths.mdPath, content, warnings: ctx.warnings, doc };
 }
 
@@ -131,7 +166,9 @@ module.exports = {
   parseSiyuanDate,
   buildDocInfo,
   buildFrontMatter,
+  buildTocTree,
   renderToc,
+  wrapDocument,
   finalizeBody,
   exportDocument,
   docsOfNotebook,
