@@ -111,7 +111,21 @@ const DOMS = {
     '<div contenteditable="true">小节 <em>标题</em></div><div class="protyle-attr">\u200b</div></div>',
   r1:
     '<div data-node-id="r1" data-type="NodeParagraph"><div contenteditable="true">' +
-    '含 <code class="code">inline</code> 与 <mark>高亮</mark>、<span data-type="block-ref">锚文字</span></div></div>'
+    '含 <code class="code">inline</code> 与 <mark>高亮</mark>、<span data-type="block-ref">锚文字</span></div></div>',
+  // 只有图片、没有任何文字的列表项（思源里「一条公式截图一项」很常见）
+  l2:
+    '<div data-node-id="l2" data-type="NodeList" data-subtype="u" class="list">' +
+    '<div data-node-id="l2a" data-type="NodeListItem" data-marker="*" class="li">' +
+    '<div class="protyle-action" contenteditable="false">•</div>' +
+    '<div data-node-id="l2a1" data-type="NodeParagraph" class="p"><div>\u200b' +
+    '<span data-type="img" class="img"><span><img src="assets/a.png" alt="image"></span></span>\u200b</div></div>' +
+    '<div data-node-id="l2a2" data-type="NodeParagraph" class="p"><div>\u200b' +
+    '<span data-type="img" class="img"><span><img src="assets/b.png" alt="image"></span></span>\u200b</div></div></div>' +
+    '<div data-node-id="l2b" data-type="NodeListItem" data-marker="*" class="li">' +
+    '<div class="protyle-action" contenteditable="false">•</div>' +
+    '<div data-node-id="l2b1" data-type="NodeParagraph" class="p"><div>\u200b' +
+    '<span data-type="img" class="img"><span><img src="assets/c.png" alt="image"></span></span>\u200b</div></div>' +
+    '<div class="protyle-attr" contenteditable="false">\u200b</div></div></div>'
 };
 
 const fakeFetch = async (url, init) => {
@@ -194,6 +208,13 @@ function newCtx(opts) {
   check("嵌套无序列表输出 <ul>", listHtml.includes("<ul>") && listHtml.includes("</ul>"), listHtml);
   check("不残留 data-marker / li、list 类名", !/data-marker|class="li"|class="list"/.test(listHtml), listHtml);
   check("有序列表序号不被重复写进正文", !listHtml.includes("1."), listHtml);
+
+  console.log("\n## 纯图片列表项");
+  const imgListHtml = await I.renderBlockHtml({ id: "l2", type: "l", subType: "u" }, newCtx());
+  console.log(imgListHtml);
+  check("没有文字只有图片的列表项不被丢弃", (imgListHtml.match(/<li>/g) || []).length === 2, imgListHtml);
+  check("条目内图片按 figure 输出", (imgListHtml.match(/<figure class="sy-image">/g) || []).length === 3, imgListHtml);
+  check("图片 src 全部保留", imgListHtml.includes("assets/a.png") && imgListHtml.includes("assets/b.png") && imgListHtml.includes("assets/c.png"), imgListHtml);
 
   console.log("\n## 图片 / 链接");
   const imgHtml = await I.renderBlockHtml({ id: "i1", type: "img" }, newCtx());

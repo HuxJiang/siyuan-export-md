@@ -306,6 +306,13 @@ function renderListItem(li, list, ctx) {
       if (isBlockNode(child)) {
         const type = blockTypeOf(child, "");
         if (type === "p" && !seenBlock) {
+          // 纯图片段落照图片块走 figure；否则整条只剩一个裸 <img> 挂在 <li> 里
+          const imgs = child.querySelectorAll("img");
+          if (imgs.length && !stripZeroWidth(textOf(child)).trim() && !child.querySelector("a")) {
+            appendHtml(item, renderParagraph(child, ctx));
+            seenBlock = true;
+            return;
+          }
           appendInlineChildren(child, item, ctx);
           seenBlock = true;
           return;
@@ -318,7 +325,10 @@ function renderListItem(li, list, ctx) {
     appendInline(child, item, ctx);
   });
 
-  if (!item.textContent.replace(/\s+/g, "")) return;
+  // 没有文字但带图片/公式/表的列表项（如「公式截图 + 无说明」）必须保留，
+  // 只按文字判空会把整条丢掉，连带条目里的图片也不再计入导出资源。
+  const hasVisual = item.querySelector("img, video, audio, iframe, svg, table, figure, .math-block, .math-inline");
+  if (!stripZeroWidth(item.textContent || "").trim() && !hasVisual) return;
   list.appendChild(item);
 }
 
