@@ -71,6 +71,7 @@ async function exportSite(docIds, opts, notebookName, onProgress) {
   const assets = new AssetStore();
   const files = [];
   const warnings = [];
+  const docs = [];
   let docCount = 0;
 
   for (let i = 0; i < docIds.length; i++) {
@@ -78,6 +79,13 @@ async function exportSite(docIds, opts, notebookName, onProgress) {
     try {
       const result = await exportDocument(id, opts, assets, notebookName);
       files.push({ path: result.path, data: new TextEncoder().encode(result.content) });
+      docs.push({
+        id,
+        title: result.doc.title,
+        hpath: result.doc.hpath || "",
+        path: result.path,
+        box: result.doc.box || ""
+      });
       result.warnings.forEach((w) => warnings.push(`[${result.doc.title}] ${w}`));
       docCount += 1;
       if (onProgress) onProgress(i + 1, docIds.length, result.doc.title);
@@ -106,7 +114,8 @@ async function exportSite(docIds, opts, notebookName, onProgress) {
     docCount,
     assetCount: assetFiles.size,
     warnings,
-    files
+    files,
+    docs
   };
   Object.defineProperty(result, "zip", {
     enumerable: true,

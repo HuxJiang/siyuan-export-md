@@ -37,7 +37,7 @@
 
 ## 一、安装
 
-源码在 `src/`（按功能拆分：`api.js`、`assets.js`、`dom.js`、`math.js`、`document.js`、`site.js`、`zip.js`、`output.js`、`render/`、`ui/dialog.js`）。根目录的 `index.js` 是一个**运行时加载器**：思源只把 `plugins/<name>/index.js` 交给 `window.eval` 执行，注入的 `require` 只认 `"siyuan"`，所以它用同步 XHR 从 `/plugins/<name>/src/…` 把模块源码取回来，再用一个极小的 CJS 注册表按 `require` 图逐个求值。
+源码在 `src/`（按功能拆分：`api.js`、`assets.js`、`dom.js`、`math.js`、`document.js`、`site.js`、`zip.js`、`output.js`、`doc-tree.js`、`export-log.js`、`render/`、`ui/dialog.js`、`ui/panel.js`）。根目录的 `index.js` 是一个**运行时加载器**：思源只把 `plugins/<name>/index.js` 交给 `window.eval` 执行，注入的 `require` 只认 `"siyuan"`，所以它用同步 XHR 从 `/plugins/<name>/src/…` 把模块源码取回来，再用一个极小的 CJS 注册表按 `require` 图逐个求值。
 
 因此：**不需要构建**，`src/` 必须跟 `index.js` 一起发布（少一个文件插件就起不来，控制台会给出具体是哪个 URL 读不到）。
 
@@ -199,23 +199,37 @@ CommonMark / goldmark 的 HTML 块**遇到空行就结束**，之后的正文会
 | Front Matter | `title / date / toc: true` | script 模式同（另出 `tags`、Hugo 的 `categories`）；full 模式追加 `updated / slug / draft` |
 | 站点 | 仅 Hugo | Hugo（单文件/page bundle）+ Hexo |
 
-## 六、开发与自测
+## 六、导出管理页
+
+顶栏按钮的右键菜单 →「导出管理」，或命令面板「打开导出管理页」。桌面端打开为思源页签，移动端退回对话框。
+
+- 文档树：按笔记本 → 目录 → 页面还原 `blocks` 表的 `hpath` 层级，父文档本身同时作为目录和页面出现；
+- 导出状态：每篇页面标注「已导出 / 未导出」，已导出的附带路径 —— 写盘模式记绝对路径（Windows 反斜杠），压缩包模式记 `包名 › 包内路径`（浏览器下载目录插件拿不到）；
+- 顶部统计页面总量 / 已导出 / 未导出，搜索框按标题或路径过滤，命中子文档时父级自动保留；
+- 行内「导出 / 重新导出」按当前面板设置导出单篇；「导出全部未导出」按笔记本分组导出（每本一个压缩包，或写盘到同一目录）；
+- 「复制路径」「打开目录」（桌面端写盘时）用于定位文件；「清空导出记录」只删记录，不删已导出的文件。
+
+记录存在插件数据目录 `data/storage/petal/siyuan-export-md/`（键 `exportRecords`），同一文档只保留最近一次导出，插件重载后仍然有效。升级前已经导出过的文档不会自动补记录，重新导出一次即可。
+
+## 七、开发与自测
 
 不用构建：改 `src/` 里的文件，然后在「设置 → 集市」把插件关掉再打开（或重启思源）即可。
 
 ```bash
 node --check index.js       # 加载器语法
 node test/loader-test.cjs   # 每个相对 require 都能解析到文件 + 模块图无环
+node test/panel-test.cjs    # 文档树构建、导出记录清洗与持久化
+node test/panel-dom-test.cjs # 控制页渲染：树、徽标、路径、统计、搜索、自动刷新
 node test/self-test.cjs     # 契约 + 纯函数 + 假内核端到端（jsdom 提供 DOMParser）
 node test/dom-test.cjs      # 表格 / callout / 超级块 / 列表 / 引用 / 代码块等 DOM 分支
-npm i jsdom                 # 两个自测都依赖它（package.json 已声明）
+npm i jsdom                 # 依赖它的自测（package.json 已声明）
 ```
 
 两个自测都从根 `index.js` 进入，把 `XMLHttpRequest` 桩成读本地文件（`test/xhr-stub.cjs`），所以验证的正是“加载器 → src 模块”这条真实链路；再用假 `fetch` 桩模拟 `/api/query/sql`、`/api/block/getChildBlocks`、`/api/block/getBlockDOM`、`/api/file/getFile`。
 
 调试：开发者工具（右下角 `?` → 开发者工具）看 Console，日志前缀 `[siyuan-export-md]`。
 
-## 七、已知限制
+## 八、已知限制
 
 - 挂件 / 查询嵌入 / 数据库的动态行为无法静态化，只能导出当时的静态外观或占位；
 - 挂件引用的 `/widgets/…`、`/plugins/…`、`/api/…` 属运行态路径，不拷进包（拷了在静态站也跑不起来）；

@@ -3,5 +3,8 @@
   "commandTitle": "Export as HTML (Hexo/Hugo)",
   "exportMarkdown": "Export as HTML (Hexo/Hugo)",
   "dialogTitle": "Export for Hexo / Hugo (HTML body)",
-  "menuExport": "Export as HTML"
+  "menuExport": "Export as HTML",
+  "menuManager": "Export Manager",
+  "managerCommandTitle": "Open export manager",
+  "managerTitle": "Export Manager"
 }

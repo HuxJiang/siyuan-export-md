@@ -11,7 +11,7 @@ const { listNotebooks } = require("../api");
 const { escapeHtml } = require("../utils");
 const { docsOfNotebook } = require("../document");
 const { exportSite } = require("../site");
-const { isDesktopWritable, defaultOutputDir, pickDirectory, writeFilesToFolder } = require("../output");
+const { isDesktopWritable, defaultOutputDir, pickDirectory, writeFilesToFolder, joinRelative } = require("../output");
 const { Dialog, showMessage } = require("siyuan");
 
 const DOC_ID_RE = /^\d{14}-[a-z0-9]{7}$/;
@@ -309,8 +309,83 @@ function openDialog(plugin, protyle) {
   });
 }
 
-async function doExport(plugin, opts, docIdInput, notebookEl, setStatus) {
+/**
+ * 把导出结果记进 ExportLog：控制页据此显示「导出过没有 / 导出到了哪里」。
+ * 写盘模式记绝对路径；压缩包模式记包名 + 包内相对路径（浏览器下载目录我们拿不到）。
+ */
+async function recordExport(plugin, result, opts, notebookName, mode, targetDir, zipName) {
+  const log = plugin && plugin.exportLog;
+  if (!log || typeof log.recordMany !== "function") return;
+  const stamp = Date.now();
+  const records = (result.docs || []).map((doc) => ({
+    docId: doc.id,
+    title: doc.title,
+    hpath: doc.hpath,
+    box: doc.box,
+    notebook: notebookName || "",
+    site: opts.site,
+    mode,
+    relPath: doc.path,
+    targetDir: mode === "folder" ? targetDir || "" : "",
+    fullPath: mode === "folder" ? joinRelative(targetDir || "", doc.path) : "",
+    zipName: mode === "zip" ? zipName || "" : "",
+    exportedAt: stamp
+  }));
+  try {
+    await log.recordMany(records);
+  } catch (e) {
+    console.warn(LOG_PREFIX, "写入导出记录失败", e);
+  }
+}
+
+/**
+ * 真正干活的一层：导出 + 落盘/打包 + 记录，返回 { result, wrote, zipName }。
+ * 对话框和控制页都走这里，保证两条入口的记录口径一致。
+ */
+async function exportDocs(plugin, opts, docIds, notebookName, setStatus) {
   const self = plugin;
+  const status = typeof setStatus === "function" ? setStatus : () => {};
+  status(`开始导出，共 ${docIds.length} 篇…`);
+  const result = await exportSite(docIds, opts, notebookName, (done, total, title) => {
+    status(`(${done}/${total}) ${title}`);
+  });
+
+  const warnText = result.warnings.length
+    ? `；${result.warnings.length} 条告警见 ${
+        opts.outputMode === "folder" ? "导出目录" : "压缩包"
+      }内 SIYUAN-EXPORT-REPORT.html`
+    : "";
+
+  if (opts.outputMode === "folder") {
+    const target = opts.outputDir || defaultOutputDir();
+    if (!target) {
+      status("请先填写导出目录（绝对路径），或点「选择…」挑一个文件夹");
+      return { result, wrote: null, zipName: "" };
+    }
+    status(`正在写入 ${target} …`);
+    const wrote = writeFilesToFolder(target, result.files, (done, total, path) => {
+      status(`写入 (${done}/${total}) ${path}`);
+    });
+    await recordExport(self, result, opts, notebookName, "folder", wrote.dir, "");
+    const skippedText = wrote.skipped.length ? `；${wrote.skipped.length} 个路径越界已跳过` : "";
+    status(
+      `完成：${result.docCount} 篇文档、${result.assetCount} 个资源，已写入 ${wrote.written} 个文件到 ${wrote.dir}${warnText}${skippedText}`
+    );
+    showMessage(`导出完成：${result.docCount} 篇文档，已写入 ${wrote.written} 个文件${warnText}`, 6000);
+    return { result, wrote, zipName: "" };
+  }
+
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  const filename = `siyuan-${opts.site}-${stamp}.zip`;
+  self.download(result.zip, filename);
+  await recordExport(self, result, opts, notebookName, "zip", "", filename);
+
+  status(`完成：${result.docCount} 篇文档、${result.assetCount} 个资源、共 ${result.fileCount} 个文件${warnText}`);
+  showMessage(`导出完成：${result.docCount} 篇文档${warnText}`, 6000);
+  return { result, wrote: null, zipName: filename };
+}
+
+async function doExport(plugin, opts, docIdInput, notebookEl, setStatus) {
   let docIds = [];
   let notebookName = "";
 
@@ -335,41 +410,7 @@ async function doExport(plugin, opts, docIdInput, notebookEl, setStatus) {
     docIds = [docIdInput];
   }
 
-  setStatus(`开始导出，共 ${docIds.length} 篇…`);
-  const result = await exportSite(docIds, opts, notebookName, (done, total, title) => {
-    setStatus(`(${done}/${total}) ${title}`);
-  });
-
-  const warnText = result.warnings.length
-    ? `；${result.warnings.length} 条告警见 ${
-        opts.outputMode === "folder" ? "导出目录" : "压缩包"
-      }内 SIYUAN-EXPORT-REPORT.html`
-    : "";
-
-  if (opts.outputMode === "folder") {
-    const target = opts.outputDir || defaultOutputDir();
-    if (!target) {
-      setStatus("请先填写导出目录（绝对路径），或点「选择…」挑一个文件夹");
-      return;
-    }
-    setStatus(`正在写入 ${target} …`);
-    const wrote = writeFilesToFolder(target, result.files, (done, total, path) => {
-      setStatus(`写入 (${done}/${total}) ${path}`);
-    });
-    const skippedText = wrote.skipped.length ? `；${wrote.skipped.length} 个路径越界已跳过` : "";
-    setStatus(
-      `完成：${result.docCount} 篇文档、${result.assetCount} 个资源，已写入 ${wrote.written} 个文件到 ${wrote.dir}${warnText}${skippedText}`
-    );
-    showMessage(`导出完成：${result.docCount} 篇文档，已写入 ${wrote.written} 个文件${warnText}`, 6000);
-    return;
-  }
-
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-  const filename = `siyuan-${opts.site}-${stamp}.zip`;
-  self.download(result.zip, filename);
-
-  setStatus(`完成：${result.docCount} 篇文档、${result.assetCount} 个资源、共 ${result.fileCount} 个文件${warnText}`);
-  showMessage(`导出完成：${result.docCount} 篇文档${warnText}`, 6000);
+  return exportDocs(plugin, opts, docIds, notebookName, setStatus);
 }
 
 function downloadBytes(bytes, filename) {
@@ -390,5 +431,7 @@ module.exports = {
   currentDocId,
   openDialog,
   doExport,
+  exportDocs,
+  recordExport,
   downloadBytes,
 };

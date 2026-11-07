@@ -7,7 +7,11 @@
 "use strict";
 
 const { DEFAULT_OPTIONS, LOG_PREFIX } = require("./config");
-const { currentDocId, idFromProtyle, isDocId, openDialog, doExport, downloadBytes } = require("./ui/dialog");const { slugify, asciiFileName, docPaths } = require("./naming");
+const { currentDocId, idFromProtyle, isDocId, openDialog, doExport, exportDocs, downloadBytes } = require("./ui/dialog");
+const { openManager, injectStyles, removeStyles } = require("./ui/panel");
+const { ExportLog, normalizeStore, pathOf } = require("./export-log");
+const { buildDocTree, countTreeDocs } = require("./doc-tree");
+const { slugify, asciiFileName, docPaths } = require("./naming");
 const { normalizeType } = require("./api");
 const { AssetStore } = require("./assets");
 const { exportDocument } = require("./document");
@@ -28,6 +32,10 @@ class SiYuanHtmlExporter extends Plugin {
     this.dialog = null;
     /** 最后激活的编辑器；每次打开面板时用它取「当前文档」 */
     this.activeProtyle = null;
+    /** 导出记录（控制页的数据源），onload 里加载 */
+    this.exportLog = new ExportLog(this);
+    this.managerPanel = null;
+    this.managerTabRegistered = false;
   }
 
   async onload() {
@@ -41,6 +49,12 @@ class SiYuanHtmlExporter extends Plugin {
     } catch (e) {
       /* 首次加载没有配置 */
     }
+    try {
+      await this.exportLog.load();
+    } catch (e) {
+      console.warn(LOG_PREFIX, "读取导出记录失败", e);
+    }
+    injectStyles();
 
     this.addTopBar({
       icon: TOPBAR_ICON,
@@ -53,6 +67,11 @@ class SiYuanHtmlExporter extends Plugin {
           label: String((this.i18n && this.i18n.menuExport) || "导出为 HTML"),
           click: () => this.openDialog()
         });
+        menu.addItem({
+          icon: "iconList",
+          label: String((this.i18n && this.i18n.menuManager) || "导出管理"),
+          click: () => this.openManager()
+        });
       }
     });
 
@@ -62,12 +81,24 @@ class SiYuanHtmlExporter extends Plugin {
       hotkey: "⌥⇧E",
       execute: (context) => this.openDialog(context && context.protyle)
     });
+
+    this.addCommand({
+      langKey: "openManager",
+      langText: String((this.i18n && this.i18n.managerCommandTitle) || "打开导出管理页"),
+      execute: () => this.openManager()
+    });
   }
 
   onunload() {
     if (this.dialog) this.dialog.destroy();
     this.dialog = null;
     this.activeProtyle = null;
+    if (this.managerPanel) {
+      this.managerPanel.destroy();
+      this.managerPanel = null;
+    }
+    removeStyles();
+    this.managerTabRegistered = false;
   }
 
   /**
@@ -113,6 +144,14 @@ class SiYuanHtmlExporter extends Plugin {
     return doExport(this, opts, docIdInput, notebookEl, setStatus);
   }
 
+  exportDocs(opts, docIds, notebookName, setStatus) {
+    return exportDocs(this, opts, docIds, notebookName, setStatus);
+  }
+
+  openManager() {
+    return openManager(this);
+  }
+
   download(bytes, filename) {
     return downloadBytes(bytes, filename);
   }
@@ -143,4 +182,10 @@ module.exports.__internals = {
   currentDocId,
   idFromProtyle,
   isDocId,
+  ExportLog,
+  normalizeStore,
+  pathOf,
+  buildDocTree,
+  countTreeDocs,
+  createPanel: require("./ui/panel").createPanel,
 };

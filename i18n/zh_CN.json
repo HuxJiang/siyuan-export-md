@@ -3,5 +3,8 @@
   "commandTitle": "导出为 HTML（Hexo/Hugo）",
   "exportMarkdown": "导出为 HTML（Hexo/Hugo）",
   "dialogTitle": "导出为 Hexo / Hugo（纯 HTML 正文）",
-  "menuExport": "导出为 HTML"
+  "menuExport": "导出为 HTML",
+  "menuManager": "导出管理",
+  "managerCommandTitle": "打开导出管理页",
+  "managerTitle": "导出管理"
 }

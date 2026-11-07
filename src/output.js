@@ -133,6 +133,19 @@ function writeFilesToFolder(rootDir, files, onProgress) {
   return { dir: root, written, skipped };
 }
 
+/**
+ * 把 "content/notes/x.md" 这样的相对路径拼到目标目录上，得到用于记录的绝对路径。
+ * 没有 Electron 时（纯网页端）退回 "/" 拼接，只用于展示。
+ */
+function joinRelative(dir, rel) {
+  const base = String(dir == null ? "" : dir).trim();
+  const segments = String(rel == null ? "" : rel).split("/").filter(Boolean);
+  const mods = nodeModules();
+  if (mods) return mods.path.join.apply(mods.path, [base].concat(segments));
+  const head = base.replace(/[\\/]+$/, "");
+  return segments.length ? head + "/" + segments.join("/") : head;
+}
+
 module.exports = {
   nodeModules,
   isDesktopWritable,
@@ -140,4 +153,5 @@ module.exports = {
   defaultOutputDir,
   pickDirectory,
   writeFilesToFolder,
+  joinRelative,
 };

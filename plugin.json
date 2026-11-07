@@ -2,7 +2,7 @@
   "name": "siyuan-export-md",
   "author": "Hux",
   "url": "https://github.com/HuxJiang/siyuan-export-md",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "minAppVersion": "3.0.0",
   "backends": ["windows", "linux", "darwin", "docker"],
   "frontends": ["desktop", "desktop-window", "browser-desktop", "mobile", "browser-mobile"],
@@ -11,8 +11,8 @@
     "zh_CN": "导出 Hexo/Hugo（纯 HTML 正文）"
   },
   "description": {
-    "default": "Export SiYuan documents as HTML body content files for hexo/Hugo. Headings are Markdown by default (## heading) and switchable to HTML in the panel; lists, quotes, code, formulas (data-latex), tables with merged cells, callouts, superblocks, assets and diagrams are all emitted as semantic HTML.",
-    "zh_CN": "把思源文档导出成可直接构建的 Hexo/Hugo 内容文件：标题默认使用 Markdown 语法（## 标题，可在面板切回 HTML），列表、引用、代码、公式（data-latex）、表格（保留合并单元格）、标注块、超级块、附件与图表输出为语义 HTML。"
+    "default": "Export SiYuan documents as HTML body content files for hexo/Hugo. Headings are Markdown by default (## heading) and switchable to HTML in the panel; lists, quotes, code, formulas (data-latex), tables with merged cells, callouts, superblocks, assets and diagrams are all emitted as semantic HTML. An Export Manager page lists every document from the notebook tree with its export status and destination path.",
+    "zh_CN": "把思源文档导出成可直接构建的 Hexo/Hugo 内容文件：标题默认使用 Markdown 语法（## 标题，可在面板切回 HTML），列表、引用、代码、公式（data-latex）、表格（保留合并单元格）、标注块、超级块、附件与图表输出为语义 HTML。另有「导出管理」页，按文档树列出所有页面，标注是否导出过以及导出路径。"
   },
   "readme": {
     "default": "README.md",
