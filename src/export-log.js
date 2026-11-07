@@ -10,6 +10,8 @@ const { LOG_PREFIX } = require("./config");
 
 const STORE_KEY = "exportRecords";
 const RECORDS_EVENT = "siyuan-export-md:records-changed";
+/** 配置变更事件：对话框和控制页共用一份 plugin.opts，谁改了都要通知另一个 */
+const CONFIG_EVENT = "siyuan-export-md:options-changed";
 const VERSION = 1;
 
 function text(value) {
@@ -52,12 +54,39 @@ function normalizeStore(raw) {
   return { version: VERSION, docs };
 }
 
-/** 控制页展示用的路径文本：写盘给绝对路径，压缩包给「包名 › 包内路径」 */
+/**
+ * 相对路径：优先用导出时记下的 relPath；老记录只有绝对路径时，
+ * 从 targetDir 前缀里剥出相对部分（剥不掉才退回原值）。
+ */
+function relativePathOf(record) {
+  if (!record) return "";
+  if (record.relPath) return record.relPath;
+  const full = record.fullPath || "";
+  const base = (record.targetDir || "").replace(/[\\/]+$/, "");
+  if (full && base && full.indexOf(base) === 0) {
+    return full.slice(base.length).replace(/^[\\/]+/, "").split(/[\\/]+/).join("/");
+  }
+  return full;
+}
+
+/**
+ * 控制页展示用的路径：统一显示相对路径（相对导出目录 / 压缩包根）。
+ * 绝对路径放在 detailOf 的悬停提示里，只用于「打开目录」。
+ */
 function pathOf(record) {
   if (!record) return "";
-  if (record.mode === "folder") return record.fullPath || record.relPath;
-  if (record.zipName && record.relPath) return record.zipName + " › " + record.relPath;
-  return record.relPath;
+  return relativePathOf(record);
+}
+
+/** 悬停提示：补上绝对路径 / 压缩包名与导出时间 */
+function detailOf(record) {
+  if (!record) return "";
+  const parts = [];
+  if (record.mode === "folder" && record.fullPath) parts.push("绝对路径：" + record.fullPath);
+  if (record.mode === "zip" && record.zipName) parts.push("压缩包：" + record.zipName);
+  const when = timeOf(record);
+  if (when) parts.push("导出时间：" + when);
+  return parts.join("；");
 }
 
 function timeOf(record) {
@@ -153,11 +182,13 @@ class ExportLog {
 module.exports = {
   STORE_KEY,
   RECORDS_EVENT,
+  CONFIG_EVENT,
   ExportLog,
   emptyStore,
   normalizeRecord,
   normalizeStore,
   pathOf,
+  detailOf,
   timeOf,
   notifyChanged,
 };

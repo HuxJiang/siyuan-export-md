@@ -129,7 +129,7 @@ class AssetStore {
 
     // 同一张图在不同文档里要各自拷到本文件的资源目录，缓存必须按目录隔离，
     // 否则整本导出时后一篇会引用到前一篇目录里的文件（page bundle / Hexo 直接断链）。
-    const paths = docPaths(ctx.doc, ctx.opts);
+    const paths = ctx.paths || docPaths(ctx.doc, ctx.opts);
     const cacheKey = `${paths.assetDir}\u0000${raw}`;
     if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
 
@@ -148,8 +148,7 @@ class AssetStore {
     try {
       const name = this.uniqueName(paths.assetDir, asciiFileName(baseName));
       this.files.set(`${paths.assetDir}/${name}`, new Uint8Array(wsPath.buffer));
-      const newRef = paths.assetPrefix + encodeURI(name);
-      this.cache.set(cacheKey, newRef);
+      const newRef = paths.assetPrefix + encodeURI(name);      this.cache.set(cacheKey, newRef);
       return newRef;
     } catch (e) {
       this.failures.push(`资源读取失败：${wsPath.path}`);

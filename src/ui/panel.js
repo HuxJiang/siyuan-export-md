@@ -17,9 +17,12 @@ const {
   matchesNode,
   normalizeQuery
 } = require("../doc-tree");
-const { RECORDS_EVENT, pathOf, timeOf } = require("../export-log");
+const { RECORDS_EVENT, CONFIG_EVENT, pathOf, detailOf, timeOf } = require("../export-log");
+const { OVERRIDES_EVENT } = require("../path-store");
+const { buildPathPlan } = require("../path-plan");
+const { createSettings, applyOptions } = require("./settings");
 const { exportDocs } = require("./dialog");
-const { isDesktopWritable, defaultOutputDir } = require("../output");
+const { isDesktopWritable, defaultOutputDir, pickDirectory, pathExists, isDirectory, joinRelative } = require("../output");
 
 const MANAGER_TAB_TYPE = "siyuan-export-md-manager";
 const STYLE_ID = "siyuan-export-md-style";
@@ -49,6 +52,7 @@ const PANEL_CSS = [
   ".syxm-badge{justify-self:start;font-size:11px;padding:1px 7px;border-radius:9px;border:1px solid transparent;white-space:nowrap;}",
   ".syxm-badge--ok{color:#1f7a4d;background:rgba(31,122,77,.12);border-color:rgba(31,122,77,.35);}",
   ".syxm-badge--none{color:var(--b3-theme-on-surface-variant);background:var(--b3-theme-surface);border-color:var(--b3-border-color);}",
+  ".syxm-badge--del{color:var(--b3-theme-error);background:rgba(200,60,60,.10);border-color:rgba(200,60,60,.35);}",
   ".syxm-badge--nb{color:var(--b3-theme-on-surface-variant);background:transparent;border-color:var(--b3-border-color);}",
   ".syxm-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--b3-theme-on-surface-variant);font-size:12px;}",
   ".syxm-actions{display:flex;gap:6px;justify-content:flex-end;}",
@@ -56,6 +60,13 @@ const PANEL_CSS = [
   ".syxm-children{margin-left:9px;border-left:1px dashed var(--b3-border-color);}",
   ".syxm-empty{padding:32px 16px;text-align:center;color:var(--b3-theme-on-surface-variant);line-height:1.9;}",
   ".syxm-foot{flex:none;padding:6px 16px;border-top:1px solid var(--b3-border-color);color:var(--b3-theme-on-surface-variant);font-size:12px;min-height:28px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+  ".syxm-root{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--b3-theme-on-surface-variant);}",
+  ".syxm-root b{font-weight:500;color:var(--b3-theme-on-background);font-family:var(--b3-font-family-code);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+  ".syxm-settings{border:1px solid var(--b3-border-color);border-radius:6px;padding:8px 10px;background:var(--b3-theme-surface);}",
+  ".syxm-detail{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border:1px solid var(--b3-border-color);border-radius:6px;background:var(--b3-theme-surface);}",
+  ".syxm-detail-row{display:flex;align-items:center;gap:8px;}",
+  ".syxm-detail-title{font-weight:600;}",
+  ".syxm-row--sel{background:var(--b3-list-hover);}",
   ".syxm-tab-dialog .syxm-page{height:68vh;}"
 ].join("");
 
@@ -162,7 +173,12 @@ function createPanel(plugin, options) {
     error: "",
     stamp: "",
     done: 0,
-    total: 0
+    deleted: 0,
+    total: 0,
+    /** 当前选中的页面（点击行后显示它的相对目录） */
+    selected: null,
+    /** 每个笔记本的原始行，用来在本地算默认目录 */
+    rowsByBox: {}
   };
 
   const root = document.createElement("div");
@@ -173,11 +189,24 @@ function createPanel(plugin, options) {
     '    <span class="syxm-title">导出管理</span>',
     '    <span class="syxm-sub" data-el="stamp"></span>',
     '    <span class="syxm-spacer"></span>',
+    '    <button class="b3-button b3-button--outline" data-el="advanced">高级设置</button>',
     '    <button class="b3-button b3-button--outline" data-el="reload">刷新</button>',
     "  </div>",
+    '  <div class="syxm-root">',
+    '    <span style="flex:none;">项目根目录</span>',
+    '    <input class="b3-text-field" data-el="rootInput" style="flex:1;height:28px;font-family:var(--b3-font-family-code);font-size:12px;" />',
+    '    <button class="b3-button b3-button--outline" data-el="pickRoot" style="flex:none;white-space:nowrap;">选择…</button>',
+    "  </div>",
+    '  <div class="syxm-root">',
+    '    <span style="flex:none;">相对目录前缀</span>',
+    '    <input class="b3-text-field" data-el="prefixInput" style="flex:1;height:28px;font-family:var(--b3-font-family-code);font-size:12px;" placeholder="可空，例如 docs" />',
+    "  </div>",
+    '  <div class="syxm-settings" data-el="settingsHost" style="display:none;"></div>',
+    '  <div class="syxm-detail" data-el="detail" style="display:none;"></div>',
     '  <div class="syxm-stats">',
     '    <span class="syxm-stat">页面<b data-el="total">0</b></span>',
     '    <span class="syxm-stat">已导出<b data-el="done">0</b></span>',
+    '    <span class="syxm-stat">已删除<b data-el="deleted">0</b></span>',
     '    <span class="syxm-stat">未导出<b data-el="todo">0</b></span>',
     '    <span class="syxm-stat">输出<b data-el="mode">-</b></span>',
     "  </div>",
@@ -196,6 +225,51 @@ function createPanel(plugin, options) {
     el[node.getAttribute("data-el")] = node;
   });
 
+  /* ---------------- 导出状态：以本地文件为准 ---------------- */
+
+  let verifyCache = new Map();
+
+  /**
+   * 记录里的文件还在不在：
+   *   true  = 目录/文件存在
+   *   false = 确定找不到
+   *   null  = 没法检查（压缩包记录、非桌面端、缺路径）
+   */
+  function verifyRecord(record) {
+    if (!record || record.mode !== "folder" || !isDesktopWritable()) return null;
+    const base = record.targetDir || "";
+    const rel = record.pageDir || record.path || record.relPath || "";
+    if (!base || !rel) return null;
+
+    const full = joinRelative(base, rel);
+    if (/\.md$/i.test(rel)) {
+      const exists = pathExists(full);
+      return exists === null ? null : exists;
+    }
+
+    /* page bundle：页面文件夹里应当有 index.md（叶子）或 _index.md（栏目页） */
+    const dirOk = isDirectory(full);
+    if (dirOk === null) return null;
+    if (!dirOk) return false;
+    const leaf = pathExists(joinRelative(full, "index.md"));
+    const section = pathExists(joinRelative(full, "_index.md"));
+    if (leaf === null && section === null) return null;
+    return leaf === true || section === true;
+  }
+
+  /** none = 没记录；ok = 记录且文件在；deleted = 记录还在但文件找不到 */
+  function stateOf(docId) {
+    if (verifyCache.has(docId)) return verifyCache.get(docId);
+    const record = log.get(docId);
+    let state = "none";
+    if (record) {
+      const verified = verifyRecord(record);
+      state = verified === false ? "deleted" : "ok";
+    }
+    verifyCache.set(docId, state);
+    return state;
+  }
+
   function setStatus(text) {
     el.status.textContent = text || "";
   }
@@ -203,12 +277,165 @@ function createPanel(plugin, options) {
   function updateStats() {
     el.total.textContent = String(state.total);
     el.done.textContent = String(state.done);
-    el.todo.textContent = String(Math.max(0, state.total - state.done));
+    el.deleted.textContent = String(state.deleted);
+    el.todo.textContent = String(Math.max(0, state.total - state.done - state.deleted));
     el.mode.textContent = plugin.opts.outputMode === "folder" ? "文件夹" : "压缩包";
     el.mode.title = plugin.opts.outputMode === "folder"
       ? plugin.opts.outputDir || defaultOutputDir() || "默认目录"
       : "下载 zip";
     el.stamp.textContent = state.stamp ? "更新于 " + state.stamp : "";
+  }
+
+  /* ---------------- 共享配置 / 项目根目录 ---------------- */
+
+  const settings = createSettings(plugin, { exclude: ["outputDir", "treePrefix"] });
+  el.settingsHost.appendChild(settings.element);
+
+  function updateRoot() {
+    if (document.activeElement !== el.rootInput) {
+      el.rootInput.value = plugin.opts.outputDir || "";
+      el.rootInput.placeholder = "默认：" + (defaultOutputDir() || "未设置");
+      el.rootInput.title = "导出时所有相对目录都以这个目录为根";
+    }
+    if (document.activeElement !== el.prefixInput) {
+      el.prefixInput.value = plugin.opts.treePrefix || "";
+    }
+  }
+
+  el.rootInput.addEventListener("change", () => {
+    const value = String(el.rootInput.value || "").trim();
+    applyOptions(plugin, { outputDir: value });
+    updateRoot();
+    updateStats();
+  });
+
+  el.prefixInput.addEventListener("change", () => {
+    const value = String(el.prefixInput.value || "").trim();
+    applyOptions(plugin, { treePrefix: value });
+    updateRoot();
+    updateStats();
+  });
+
+  el.advanced.addEventListener("click", () => {
+    const open = el.settingsHost.style.display === "none";
+    el.settingsHost.style.display = open ? "" : "none";
+    el.advanced.textContent = open ? "收起设置" : "高级设置";
+  });
+
+  el.pickRoot.addEventListener("click", async () => {
+    if (!isDesktopWritable()) {
+      showMessage("当前环境不能直接写盘，可手动填写路径", 4000);
+      return;
+    }
+    el.pickRoot.disabled = true;
+    try {
+      const picked = await pickDirectory(el.rootInput.value);
+      if (picked) {
+        el.rootInput.value = picked;
+        el.rootInput.dispatchEvent(new Event("change"));
+      }
+    } finally {
+      el.pickRoot.disabled = false;
+    }
+  });
+
+  const onConfigChanged = () => {
+    settings.sync();
+    updateRoot();
+    updateStats();
+    if (state.selected) renderDetail();
+  };
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener(CONFIG_EVENT, onConfigChanged);
+  }
+  updateRoot();
+
+  /* ---------------- 选中页面的相对目录 ---------------- */
+
+  function planDirFor(doc) {
+    const rows = state.rowsByBox[doc.box] || [];
+    const overrides = plugin.pathOverrides;
+    const getOverride =
+      overrides && typeof overrides.get === "function" ? (id) => overrides.get(id) : null;
+    const plan = buildPathPlan(rows, (id) => log.get(id), plugin.opts, getOverride);
+    const entry = plan.get(doc.id);
+    return entry ? entry.dir : "";
+  }
+
+  function renderDetail() {
+    el.detail.textContent = "";
+    const doc = state.selected;
+    if (!doc) {
+      el.detail.style.display = "none";
+      return;
+    }
+    el.detail.style.display = "flex";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "syxm-detail-row";
+    const title = document.createElement("span");
+    title.className = "syxm-detail-title";
+    title.textContent = doc.title || doc.hpath || doc.id;
+    titleRow.appendChild(title);
+    const path = document.createElement("span");
+    path.className = "syxm-sub";
+    path.textContent = doc.hpath || "";
+    titleRow.appendChild(path);
+    el.detail.appendChild(titleRow);
+
+    const overrides = plugin.pathOverrides;
+    const current = overrides && typeof overrides.get === "function" ? overrides.get(doc.id) : "";
+    const planDir = planDirFor(doc);
+    const record = log.get(doc.id);
+    const shown = current || (record && record.pageDir) || planDir;
+
+    const editRow = document.createElement("div");
+    editRow.className = "syxm-detail-row";
+    const label = document.createElement("span");
+    label.textContent = "相对目录";
+    label.style.flex = "none";
+    editRow.appendChild(label);
+
+    const input = document.createElement("input");
+    input.className = "b3-text-field";
+    input.style.flex = "1";
+    input.style.fontFamily = "var(--b3-font-family-code)";
+    input.value = shown || "";
+    input.placeholder = planDir ? "默认：" + planDir : "例如 父页/子页";
+    editRow.appendChild(input);
+
+    const save = document.createElement("button");
+    save.className = "b3-button b3-button--outline";
+    save.textContent = "保存";
+    save.addEventListener("click", async () => {
+      if (!overrides || typeof overrides.set !== "function") return;
+      await overrides.set(doc.id, input.value);
+      setStatus("已保存「" + (doc.title || doc.id) + "」的相对目录");
+      renderDetail();
+    });
+    editRow.appendChild(save);
+
+    const reset = document.createElement("button");
+    reset.className = "b3-button b3-button--text";
+    reset.textContent = "恢复默认";
+    reset.disabled = !current;
+    reset.addEventListener("click", async () => {
+      if (!overrides || typeof overrides.clear !== "function") return;
+      await overrides.clear(doc.id);
+      setStatus("已恢复「" + (doc.title || doc.id) + "」的默认目录");
+      renderDetail();
+    });
+    editRow.appendChild(reset);
+    el.detail.appendChild(editRow);
+
+    const hint = document.createElement("div");
+    hint.className = "syxm-sub";
+    const treeLayout = plugin.opts.site === "hugo" && plugin.opts.hugoLayout === "bundle";
+    hint.textContent = (treeLayout ? "" : "当前不是 Hugo page bundle 布局，改动会在切到该布局后生效。") +
+      (current
+        ? "自定义目录，子页面会挂在这个目录下。清空并保存等同恢复默认。"
+        : "跟随文档树计算（父页面已导出则挂在它下面）。改这里只影响这一个页面，子页面跟着走。");
+    el.detail.appendChild(hint);
   }
 
   function buildActions(node, notebookName) {
@@ -230,7 +457,7 @@ function createPanel(plugin, options) {
       actions.appendChild(
         makeButton("复制路径", "b3-button b3-button--text syxm-mini", () => {
           const target = pathOf(record);
-          showMessage(copyText(target) ? "已复制导出路径" : "复制失败，请手动复制", 4000);
+          showMessage(copyText(target) ? "已复制相对路径" : "复制失败，请手动复制", 4000);
         })
       );
     }
@@ -284,27 +511,54 @@ function createPanel(plugin, options) {
 
     const badge = document.createElement("span");
     if (node.doc) {
+      const status = stateOf(node.doc.id);
       const record = log.get(node.doc.id);
-      badge.className = "syxm-badge " + (record ? "syxm-badge--ok" : "syxm-badge--none");
-      badge.textContent = record ? "已导出" : "未导出";
-      if (record) {
+      if (status === "ok") {
+        badge.className = "syxm-badge syxm-badge--ok";
+        badge.textContent = "已导出";
         const when = timeOf(record);
         badge.title = when ? "最近导出：" + when : "";
+      } else if (status === "deleted") {
+        badge.className = "syxm-badge syxm-badge--del";
+        badge.textContent = "已删除";
+        badge.title = "有导出记录，但本地找不到 " + (record.pageDir || record.path || "导出文件") + "；重新导出即可恢复";
+      } else {
+        badge.className = "syxm-badge syxm-badge--none";
+        badge.textContent = "未导出";
       }
     } else if (node.kind === "notebook") {
       const subtreeDone = countDone(node);
+      const subtreeDeleted = countDeleted(node);
       badge.className = "syxm-badge syxm-badge--nb";
       badge.textContent = node.closed ? "已关闭" : subtreeDone + "/" + countTreeDocs(node);
-      badge.title = node.closed ? "笔记本处于关闭状态，未读取文档" : "该笔记本下已导出 / 总数";
+      badge.title = node.closed
+        ? "笔记本处于关闭状态，未读取文档"
+        : "该笔记本下已导出 / 总数" + (subtreeDeleted ? "；另有 " + subtreeDeleted + " 篇已删除" : "");
     }
 
     const path = document.createElement("span");
     path.className = "syxm-path";
     if (node.doc) {
       const record = log.get(node.doc.id);
-      const text = record ? pathOf(record) : "";
+      const override =
+        plugin.pathOverrides && typeof plugin.pathOverrides.get === "function"
+          ? plugin.pathOverrides.get(node.doc.id)
+          : "";
+      const text = override || (record ? pathOf(record) : "");
       path.textContent = text || "—";
-      if (text) path.title = text;
+      if (override) path.title = "自定义相对目录：" + override + (record ? "\n" + detailOf(record) : "");
+      else if (record) path.title = detailOf(record);
+    }
+
+    if (node.doc) {
+      row.dataset.id = node.doc.id;
+      row.addEventListener("click", (event) => {
+        if (event.target && event.target.closest && event.target.closest("button")) return;
+        state.selected = node.doc;
+        root.querySelectorAll(".syxm-row--sel").forEach((item) => item.classList.remove("syxm-row--sel"));
+        row.classList.add("syxm-row--sel");
+        renderDetail();
+      });
     }
 
     row.appendChild(caret);
@@ -353,20 +607,31 @@ function createPanel(plugin, options) {
   }
 
   function countDone(node) {
-    let total = node.doc && log.get(node.doc.id) ? 1 : 0;
+    let total = node.doc && stateOf(node.doc.id) === "ok" ? 1 : 0;
     (node.children || []).forEach((child) => {
       total += countDone(child);
     });
     return total;
   }
 
+  function countDeleted(node) {
+    let total = node.doc && stateOf(node.doc.id) === "deleted" ? 1 : 0;
+    (node.children || []).forEach((child) => {
+      total += countDeleted(child);
+    });
+    return total;
+  }
+
   function refresh() {
     el.body.textContent = "";
+    verifyCache = new Map();
     state.total = 0;
     state.done = 0;
+    state.deleted = 0;
     state.trees.forEach((tree) => {
       state.total += countTreeDocs(tree);
       state.done += countDone(tree);
+      state.deleted += countDeleted(tree);
     });
     updateStats();
 
@@ -417,10 +682,12 @@ function createPanel(plugin, options) {
             id: row.id,
             content: (row.content || "").trim(),
             hpath: row.hpath || "",
-            updated: row.updated || ""
+            updated: row.updated || "",
+            box: notebook.id
           }));
         })
       );
+      state.rowsByBox = docsByBox;
       state.trees = buildDocTree(notebooks, docsByBox);
       state.stamp = new Date().toLocaleTimeString();
     } catch (e) {
@@ -500,6 +767,7 @@ function createPanel(plugin, options) {
   };
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener(RECORDS_EVENT, onRecordsChanged);
+    window.addEventListener(OVERRIDES_EVENT, onRecordsChanged);
   }
 
   refresh();
@@ -512,7 +780,10 @@ function createPanel(plugin, options) {
     destroy() {
       if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
         window.removeEventListener(RECORDS_EVENT, onRecordsChanged);
+        window.removeEventListener(OVERRIDES_EVENT, onRecordsChanged);
+        window.removeEventListener(CONFIG_EVENT, onConfigChanged);
       }
+      settings.destroy();
       root.remove();
     }
   };

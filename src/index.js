@@ -10,8 +10,11 @@ const { DEFAULT_OPTIONS, LOG_PREFIX } = require("./config");
 const { currentDocId, idFromProtyle, isDocId, openDialog, doExport, exportDocs, downloadBytes } = require("./ui/dialog");
 const { openManager, injectStyles, removeStyles } = require("./ui/panel");
 const { ExportLog, normalizeStore, pathOf } = require("./export-log");
+const { PathOverrides } = require("./path-store");
 const { buildDocTree, countTreeDocs } = require("./doc-tree");
 const { slugify, asciiFileName, docPaths } = require("./naming");
+const { buildPathPlan, sanitizeSegment, normalizeOverride } = require("./path-plan");
+const { buildSectionFrontMatter, buildTomlFrontMatter, frontmatterSyntax } = require("./document");
 const { normalizeType } = require("./api");
 const { AssetStore } = require("./assets");
 const { exportDocument } = require("./document");
@@ -34,6 +37,8 @@ class SiYuanHtmlExporter extends Plugin {
     this.activeProtyle = null;
     /** 导出记录（控制页的数据源），onload 里加载 */
     this.exportLog = new ExportLog(this);
+    /** 面板里逐页改过的相对目录（导出时优先使用） */
+    this.pathOverrides = new PathOverrides(this);
     this.managerPanel = null;
     this.managerTabRegistered = false;
   }
@@ -53,6 +58,11 @@ class SiYuanHtmlExporter extends Plugin {
       await this.exportLog.load();
     } catch (e) {
       console.warn(LOG_PREFIX, "读取导出记录失败", e);
+    }
+    try {
+      await this.pathOverrides.load();
+    } catch (e) {
+      console.warn(LOG_PREFIX, "读取页面目录覆盖失败", e);
     }
     injectStyles();
 
@@ -169,6 +179,12 @@ module.exports.__internals = {
   AssetStore,
   exportSite,
   exportDocument,
+  buildPathPlan,
+  normalizeOverride,
+  sanitizeSegment,
+  buildSectionFrontMatter,
+  buildTomlFrontMatter,
+  frontmatterSyntax,
   renderBlock,
   renderBlockSafe,
   renderBlockHtml,
@@ -183,6 +199,7 @@ module.exports.__internals = {
   idFromProtyle,
   isDocId,
   ExportLog,
+  PathOverrides,
   normalizeStore,
   pathOf,
   buildDocTree,

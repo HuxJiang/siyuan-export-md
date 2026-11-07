@@ -37,7 +37,7 @@
 
 ## 一、安装
 
-源码在 `src/`（按功能拆分：`api.js`、`assets.js`、`dom.js`、`math.js`、`document.js`、`site.js`、`zip.js`、`output.js`、`doc-tree.js`、`export-log.js`、`render/`、`ui/dialog.js`、`ui/panel.js`）。根目录的 `index.js` 是一个**运行时加载器**：思源只把 `plugins/<name>/index.js` 交给 `window.eval` 执行，注入的 `require` 只认 `"siyuan"`，所以它用同步 XHR 从 `/plugins/<name>/src/…` 把模块源码取回来，再用一个极小的 CJS 注册表按 `require` 图逐个求值。
+源码在 `src/`（按功能拆分：`api.js`、`assets.js`、`dom.js`、`math.js`、`document.js`、`site.js`、`naming.js`、`path-plan.js`、`path-store.js`、`zip.js`、`output.js`、`doc-tree.js`、`export-log.js`、`render/`、`ui/settings.js`、`ui/dialog.js`、`ui/panel.js`）。根目录的 `index.js` 是一个**运行时加载器**：思源只把 `plugins/<name>/index.js` 交给 `window.eval` 执行，注入的 `require` 只认 `"siyuan"`，所以它用同步 XHR 从 `/plugins/<name>/src/…` 把模块源码取回来，再用一个极小的 CJS 注册表按 `require` 图逐个求值。
 
 因此：**不需要构建**，`src/` 必须跟 `index.js` 一起发布（少一个文件插件就起不来，控制台会给出具体是哪个 URL 读不到）。
 
@@ -54,10 +54,13 @@
 | 选项 | 默认 | 说明 |
 | --- | --- | --- |
 | 站点类型 | Hugo | `Hugo` 或 `Hexo`（只影响 Front Matter 与目录结构） |
-| Hugo 布局 | 单文件 | 单文件 = `content/<目录>/<slug>.md` + `static/siyuan/<slug>/`；page bundle = `content/posts/<slug>/index.md` + 同目录资源 |
+| Hugo 布局 | 单文件 | 单文件 = `content/<目录>/<slug>.md` + `static/siyuan/<slug>/`；page bundle = **按文档树**生成组别目录（直接建在项目根目录下，见下文） |
 | 导出范围 | 当前文档 | 当前文档 / 整个笔记本 |
-| 导出方式 | 下载压缩包 | `下载压缩包（.zip）` / `直接写入文件夹`；后者不打包，按相对路径写进「导出目录」 |
-| 导出目录 | `~/siyuan-export` | 仅「直接写入文件夹」时出现，绝对路径，可点「选择…」调用系统文件夹选择框；开头的 `~` 会展开成用户主目录 |
+| 导出方式 | 下载压缩包 | `下载压缩包（.zip）` / `直接写入文件夹`；后者不打包，按相对路径写进「项目根目录」 |
+| 项目根目录 | `~/siyuan-export` | 绝对路径，可点「选择…」调用系统文件夹选择框；开头的 `~` 会展开成用户主目录。文档树 bundle 下这里填 **Hugo 的 `content` 目录**（页面目录直接建在它下面） |
+| 相对目录前缀 | 空 | 仅文档树 bundle：页面目录在项目根目录下的额外前缀，例如 `docs` |
+| 父页面未导出 | 按父路径建目录 | 仅文档树 bundle：`按父路径建目录` / `不建父目录`（后者让页面直接落在项目根目录顶层） |
+| Front Matter 语法 | TOML | 仅文档树 bundle 默认 `TOML（+++）`；单文件 / Hexo 保持 `YAML（---）`，也可手动切换 |
 | 文档 ID | 自动填入 | 每次打开面板都重新取当前激活的编辑器（订阅 `loaded-protyle-static` / `switch-protyle` / `click-editorcontent` 跟踪，多标签页再按可见性兜底）；也可以手动粘贴别的文档 id |
 | 打包附件 | 开 | 图片等资源一起进 zip，并重写引用路径 |
 | 标题语法 | Markdown | `Markdown（## 标题）` / `HTML（<h2>标题</h2>）`；只影响标题行，其余正文始终是 HTML |
@@ -76,12 +79,26 @@ static/siyuan/<slug>/<ascii-文件名>.png
 SIYUAN-EXPORT-REPORT.html
 ```
 
-### Hugo page bundle
+### Hugo page bundle（按文档树）
+
+页面目录直接相对「项目根目录」，**不再附加 `content` / `posts` 层**。可变部分按文档树逐级生成：页面目录名取页面标题（去掉路径非法字符），子页面挂到父页面目录下。
 
 ```
-content/posts/<slug>/index.md
-content/posts/<slug>/<ascii-文件名>.png
+<父页面>/<本页面>/          ← 相对项目根目录
+  _index.md                 ← 本页面（有子页面时是栏目页，只含 title）
+  <本页面>/
+    index.md                ← 本页面的实际正文（没有正文就不建这层目录）
+    <附件>
+  <子页面>/
+    index.md                ← 子页面自己的正文
 ```
+
+- **有子页面** → 本页面目录下写 `_index.md`（栏目页，只放 Front Matter 标题），本页实际正文写进同名子目录的 `index.md`；本页没有实际内容时，这一层同名子目录不创建。
+- **没有子页面** → 直接写 `index.md`（叶子 bundle），附件放在同目录。
+- **父页面已经导出过**（导出记录里有它的组别目录）→ 子页面自动挂到父页面目录下；父页面没导出时默认按父页面标题逐级建目录，也可以选「父未导出：不建父目录」，让页面都落在项目根目录顶层。
+- 「相对目录前缀」可选，例如填 `docs` 就变成 `docs/<页面>/…`。
+- 在「导出管理」页点选某篇页面，可以单独改它的相对目录（存 `pathOverrides`），子页面会跟着挂过去；不填就是跟随文档树计算。
+- Front Matter 默认 TOML（`+++`），可切回 YAML（`---`）。
 
 ### Hexo
 
@@ -197,17 +214,21 @@ CommonMark / goldmark 的 HTML 块**遇到空行就结束**，之后的正文会
 | drawio | `docker jgraph/drawio` 转 SVG，失败降级为占位 callout | 无 docker 能力，按图表/媒体/HTML 兜底并告警 |
 | 附件拷贝 | 文件名 ASCII 化 | 同（另加多候选路径探测 + 失败告警） |
 | Front Matter | `title / date / toc: true` | script 模式同（另出 `tags`、Hugo 的 `categories`）；full 模式追加 `updated / slug / draft` |
-| 站点 | 仅 Hugo | Hugo（单文件/page bundle）+ Hexo |
+| 站点 | 仅 Hugo | Hugo（单文件 / 文档树 page bundle）+ Hexo |
 
 ## 六、导出管理页
 
 顶栏按钮的右键菜单 →「导出管理」，或命令面板「打开导出管理页」。桌面端打开为思源页签，移动端退回对话框。
 
 - 文档树：按笔记本 → 目录 → 页面还原 `blocks` 表的 `hpath` 层级，父文档本身同时作为目录和页面出现；
-- 导出状态：每篇页面标注「已导出 / 未导出」，已导出的附带路径 —— 写盘模式记绝对路径（Windows 反斜杠），压缩包模式记 `包名 › 包内路径`（浏览器下载目录插件拿不到）；
+- 顶部默认只显示**项目根目录**和**相对目录前缀**两行，都可直接编辑；根目录可点「选择…」，与导出对话框里的是同一个配置；
+- 其余配置项收在「高级设置」按钮里，展开后才显示；它与导出对话框共用同一份配置（`options`），任一处改动会即时同步到另一处；
+- 点选任一篇页面，下方显示它的**相对目录**（相对项目根目录），可保存自定义目录或「恢复默认」；自定义值存 `pathOverrides`，导出时优先使用；
+- 导出状态按**本地文件**判断：有导出记录且能在记录的目标目录下找到页面文件夹和 `index.md` / `_index.md` 时显示「已导出」；记录还在但文件已被删掉 / 移走时显示「已删除」；没有记录显示「未导出」。压缩包记录无法校验本地文件，仍按记录显示「已导出」；
+- 已导出的附带**相对路径**（相对项目根目录，如 `notes/标题.md`；压缩包模式是包内路径，指向包根）。绝对路径和压缩包名放在悬停提示里，不占列表宽度；
 - 顶部统计页面总量 / 已导出 / 未导出，搜索框按标题或路径过滤，命中子文档时父级自动保留；
 - 行内「导出 / 重新导出」按当前面板设置导出单篇；「导出全部未导出」按笔记本分组导出（每本一个压缩包，或写盘到同一目录）；
-- 「复制路径」「打开目录」（桌面端写盘时）用于定位文件；「清空导出记录」只删记录，不删已导出的文件。
+- 「复制路径」（复制当前显示相对路径）、「打开目录」（桌面端写盘时，用记录里的绝对路径定位）用于定位文件；「清空导出记录」只删记录，不删已导出的文件。
 
 记录存在插件数据目录 `data/storage/petal/siyuan-export-md/`（键 `exportRecords`），同一文档只保留最近一次导出，插件重载后仍然有效。升级前已经导出过的文档不会自动补记录，重新导出一次即可。
 
@@ -222,6 +243,7 @@ node test/panel-test.cjs    # 文档树构建、导出记录清洗与持久化
 node test/panel-dom-test.cjs # 控制页渲染：树、徽标、路径、统计、搜索、自动刷新
 node test/self-test.cjs     # 契约 + 纯函数 + 假内核端到端（jsdom 提供 DOMParser）
 node test/dom-test.cjs      # 表格 / callout / 超级块 / 列表 / 引用 / 代码块等 DOM 分支
+node test/tree-test.cjs     # 文档树 bundle：组别目录、_index.md/正文目录、TOML 与空正文
 npm i jsdom                 # 依赖它的自测（package.json 已声明）
 ```
 
@@ -236,4 +258,8 @@ npm i jsdom                 # 依赖它的自测（package.json 已声明）
 - 块引用 `((id "文字"))` 导出为锚文字纯文本，不生成跨文档锚点；
 - 正文是 HTML（标题默认用 Markdown），站点的 Markdown 渲染必须允许内联 HTML（Hugo 需 `goldmark unsafe`）；
 - 同一文档导出两次会覆盖同名文件（不做增量，zip 与直接写盘都一样）；
+- 文档树 bundle 的「父页面已导出」靠导出记录判断：父页面改了标题或换过目录后，要重新导出父页面，子页面下次才会挂到新位置；没记录时按父页面标题逐级建目录；
+- 同级页面标题相同时目录名自动加 `-2`（按路径排序，结果稳定）；
+- 有子页面时本页面会出现两个地址：`/<父>/<本页面>/`（栏目页）和 `/<父>/<本页面>/<本页面>/`（正文独立页），站点侧如需合并要自己配 permalink / alias；
 - 「直接写入文件夹」只在思源桌面版可用（依赖 `window.require("fs")`）；移动端或纯浏览器环境请用压缩包。
+- 「已导出 / 已删除」校验依赖桌面端的本地文件通道，且只对「直接写入文件夹」的记录有效；压缩包记录无法判断包内文件是否还在；

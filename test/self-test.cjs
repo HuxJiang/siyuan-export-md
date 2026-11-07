@@ -170,7 +170,7 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   check("Hugo 资源引用前缀", hugoFile.assetPrefix === "/siyuan/demo/");
 
   const bundle = I.docPaths({ slug: "demo" }, { site: "hugo", hugoLayout: "bundle" });
-  check("Hugo page bundle 路径", bundle.mdPath === "content/posts/demo/index.md" && bundle.assetPrefix === "./");
+  check("Hugo page bundle 兜底路径不再套 content/posts", bundle.mdPath === "demo/index.md" && bundle.assetPrefix === "./", bundle.mdPath);
   const hexo = I.docPaths({ slug: "demo" }, { site: "hexo" });
   check("Hexo 路径", hexo.mdPath === "source/_posts/demo.md" && hexo.assetPrefix === "demo/");
 
@@ -334,7 +334,7 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   const opts = { ...I.DEFAULT_OPTIONS, site: "hugo", hugoLayout: "file", headingDemote: true, headingStyle: "html" };
 
   const single = await I.exportDocument("doc1", opts, new I.AssetStore(), "笔记本");
-  const content = single.content;
+  const content = single.files.map((file) => file.content).join("\n");
   console.log("\n--- 生成的内容（纯 HTML 正文） ---\n" + content + "\n--- end ---\n");
 
   check("Front Matter 标题", content.startsWith("---\ntitle: 测试文档\ndate: 2024-01-01"), content.slice(0, 60));
@@ -384,7 +384,7 @@ check("暴露自测内部函数", !!exportsObj.__internals);
    * ---------------------------------------------------------------- */
   section("Markdown 标题模式");
   const md = await I.exportDocument("doc1", { ...opts, headingStyle: "markdown" }, new I.AssetStore(), "笔记本");
-  const mdContent = md.content;
+  const mdContent = md.files.map((file) => file.content).join("\n");
   console.log("\n--- 生成的内容（Markdown 标题 + HTML 正文） ---\n" + mdContent + "\n--- end ---\n");
 
   check(
@@ -422,13 +422,13 @@ check("暴露自测内部函数", !!exportsObj.__internals);
    * ---------------------------------------------------------------- */
   section("失败降级");
   const plainDoc = await I.exportDocument("doc2", opts, new I.AssetStore(), "笔记本");
-  check("查询嵌入占位是 HTML", plainDoc.content.includes('<div class="sy-placeholder"'));
-  check("正文不带来源注释（块 id 已挂在元素上）", !plainDoc.content.includes("<!-- siyuan:"), plainDoc.content);
+  check("查询嵌入占位是 HTML", plainDoc.files[0].content.includes('<div class="sy-placeholder"'));
+  check("正文不带来源注释（块 id 已挂在元素上）", !plainDoc.files[0].content.includes("<!-- siyuan:"), plainDoc.files[0].content);
   check("不再有隐藏的调试开关", !("debugComment" in I.DEFAULT_OPTIONS), JSON.stringify(I.DEFAULT_OPTIONS));
 
   const brokenStore = new I.AssetStore();
   const broken = await I.exportDocument("doc3", opts, brokenStore, "笔记本");
-  check("资源读不到时保留原相对路径", broken.content.includes('src="assets/broken.png"'), broken.content);
+  check("资源读不到时保留原相对路径", broken.files[0].content.includes('src="assets/broken.png"'), broken.files[0].content);
   check(
     "资源读不到时记录到失败清单",
     brokenStore.failures.some((w) => w.includes("资源未找到")),

@@ -10,6 +10,8 @@ const { exportDocument } = require("./document");
 const { AssetStore } = require("./assets");
 const { buildZip } = require("./zip");
 const { escapeHtml } = require("./utils");
+const { getDocRow, listDocsOfNotebook } = require("./api");
+const { buildPathPlan } = require("./path-plan");
 
 const REPORT_STYLE = [
   "body{font:14px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;",
@@ -67,23 +69,66 @@ function buildReport({ opts, docCount, fileCount, assetCount, warnings }) {
   ].join("\n");
 }
 
-async function exportSite(docIds, opts, notebookName, onProgress) {
+/**
+ * 给本次导出的文档算「组别目录」。
+ * 只有 Hugo 的 page bundle 布局需要：先按 box 取整个笔记本的文档树，再逐页规划。
+ * runtime.exportLog 提供父页面是否已导出（已导出则挂到父页面目录下）。
+ */
+async function buildPlans(docIds, opts, runtime) {
+  const plans = new Map();
+  if (!(opts.site === "hugo" && opts.hugoLayout === "bundle")) return plans;
+
+  const boxes = new Set();
+  for (const id of docIds) {
+    try {
+      const row = await getDocRow(id);
+      if (row && row.box) boxes.add(row.box);
+    } catch (e) {
+      /* 单页取不到 box 时退化为不规划，按标题单独建目录 */
+    }
+  }
+
+  const log = runtime && runtime.exportLog;
+  const getRecord = log && typeof log.get === "function" ? (id) => log.get(id) : null;
+  const overrides = runtime && runtime.pathOverrides;
+  const getOverride =
+    overrides && typeof overrides.get === "function" ? (id) => overrides.get(id) : null;
+
+  for (const box of boxes) {
+    let rows = [];
+    try {
+      rows = await listDocsOfNotebook(box);
+    } catch (e) {
+      rows = [];
+    }
+    const plan = buildPathPlan(rows, getRecord, opts, getOverride);
+    plan.forEach((entry, id) => plans.set(id, entry));
+  }
+  return plans;
+}
+
+async function exportSite(docIds, opts, notebookName, onProgress, runtime) {
   const assets = new AssetStore();
   const files = [];
   const warnings = [];
   const docs = [];
+  const plans = await buildPlans(docIds, opts, runtime);
   let docCount = 0;
 
   for (let i = 0; i < docIds.length; i++) {
     const id = docIds[i];
     try {
-      const result = await exportDocument(id, opts, assets, notebookName);
-      files.push({ path: result.path, data: new TextEncoder().encode(result.content) });
+      const result = await exportDocument(id, opts, assets, notebookName, plans.get(id));
+      result.files.forEach((file) => {
+        files.push({ path: file.path, data: new TextEncoder().encode(file.content) });
+      });
       docs.push({
         id,
         title: result.doc.title,
         hpath: result.doc.hpath || "",
         path: result.path,
+        pageDir: result.pageDir,
+        files: result.files.map((file) => file.path),
         box: result.doc.box || ""
       });
       result.warnings.forEach((w) => warnings.push(`[${result.doc.title}] ${w}`));
@@ -131,5 +176,6 @@ module.exports = {
   REPORT_STYLE,
   SITE_CONFIG_HINT,
   buildReport,
+  buildPlans,
   exportSite,
 };

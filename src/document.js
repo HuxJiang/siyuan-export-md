@@ -87,6 +87,58 @@ function buildFrontMatter(doc, opts) {
   return lines.join("\n");
 }
 
+/** TOML 字符串：能安全用字面量单引号就用单引号，否则退回双引号转义 */
+function tomlString(value) {
+  const text = String(value == null ? "" : value).replace(/\r?\n/g, " ").trim();
+  if (!text) return '""';
+  if (text.indexOf("'") === -1 && !/[\u0000-\u001f]/.test(text)) return `'${text}'`;
+  return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function tomlArray(items) {
+  const list = (items || []).filter(Boolean).map((item) => tomlString(item));
+  return list.length ? `[${list.join(", ")}]` : "[]";
+}
+
+/** TOML 版正文 Front Matter（给用 +++ 的站点） */
+function buildTomlFrontMatter(doc, opts) {
+  const lines = ["+++", `title = ${tomlString(doc.title)}`];
+  lines.push(`date = ${formatDate(doc.created)}`);
+  lines.push("toc = true");
+  if (doc.tags.length) lines.push(`tags = ${tomlArray(doc.tags)}`);
+  if (doc.notebook && opts.site === "hugo") lines.push(`categories = ${tomlArray([doc.notebook])}`);
+  if (opts.frontmatter === "full") {
+    lines.push(`updated = ${formatDate(doc.updated)}`);
+    if (opts.site === "hugo") {
+      lines.push(`slug = ${tomlString(doc.slug)}`);
+      lines.push("draft = false");
+    }
+  }
+  lines.push("+++", "");
+  return lines.join("\n");
+}
+
+/** Front Matter 语法：显式设置优先；Hugo 的文档树 bundle 默认 TOML，其余保持 YAML */
+function frontmatterSyntax(opts) {
+  const options = opts || {};
+  if (options.frontmatterSyntax === "toml" || options.frontmatterSyntax === "yaml") {
+    return options.frontmatterSyntax;
+  }
+  return options.site === "hugo" && options.hugoLayout === "bundle" ? "toml" : "yaml";
+}
+
+function docFrontMatter(doc, opts) {
+  return frontmatterSyntax(opts) === "toml" ? buildTomlFrontMatter(doc, opts) : buildFrontMatter(doc, opts);
+}
+
+/** 栏目页 _index.md 只放标题（正文在同名子目录的 index.md 里） */
+function buildSectionFrontMatter(doc, opts) {
+  if (frontmatterSyntax(opts) === "toml") {
+    return ["+++", `title = ${tomlString(doc.title)}`, "+++", ""].join("\n");
+  }
+  return ["---", `title: ${yamlString(doc.title)}`, "---", ""].join("\n");
+}
+
 /* ------------------------------------------------------------------ *
  * 2. 目录（HTML）
  * ------------------------------------------------------------------ */
@@ -140,12 +192,23 @@ function finalizeBody(body, ctx) {
   return compactHtml(out);
 }
 
-async function exportDocument(docId, opts, assets, notebookName) {
+/** 正文是否有实际内容：空段落 / 只有零宽字符的块不算 */
+function hasMeaningfulHtml(html) {
+  const stripped = String(html || "")
+    .replace(/<p[^>]*>(?:\s|&nbsp;|&#32;|<br\s*\/?>)*<\/p>/gi, "")
+    .replace(/<div[^>]*>(?:\s|&nbsp;|&#32;|<br\s*\/?>)*<\/div>/gi, "")
+    .trim();
+  return stripped.length > 0;
+}
+
+async function exportDocument(docId, opts, assets, notebookName, planEntry) {
   const doc = await buildDocInfo(docId, notebookName);
+  const paths = docPaths(doc, opts, planEntry);
   const ctx = {
     opts,
     doc,
     assets,
+    paths,
     headings: [],
     headingIds: new Map(),
     warnings: [],
@@ -161,9 +224,35 @@ async function exportDocument(docId, opts, assets, notebookName) {
 
   body = await rewriteAssetRefs(body, ctx);
   const main = finalizeBody(body, ctx);
-  const paths = docPaths(doc, opts);
-  const content = `${buildFrontMatter(doc, opts)}${main ? wrapDocument(main, opts) + "\n" : ""}`;
-  return { path: paths.mdPath, content, warnings: ctx.warnings, doc };
+
+  const treeBundle = opts.site === "hugo" && opts.hugoLayout === "bundle" && planEntry && planEntry.dir;
+  const hasBody = hasMeaningfulHtml(main);
+  const files = [];
+  if (treeBundle && planEntry.hasChildren) {
+    /* 有子页面：本页面目录放 _index.md（栏目页，只有标题），正文进同名子目录的 index.md */
+    files.push({ path: paths.mdPath, content: buildSectionFrontMatter(doc, opts) });
+    if (hasBody) {
+      files.push({
+        path: paths.bodyPath,
+        content: `${docFrontMatter(doc, opts)}${wrapDocument(main, opts)}\n`
+      });
+    }
+  } else {
+    files.push({
+      path: paths.mdPath,
+      content: `${docFrontMatter(doc, opts)}${hasBody ? wrapDocument(main, opts) + "\n" : ""}`
+    });
+  }
+
+  const displayPath = treeBundle ? paths.pageDir : paths.mdPath;
+  return {
+    files,
+    path: displayPath,
+    pageDir: paths.pageDir || "",
+    hasBody,
+    warnings: ctx.warnings,
+    doc
+  };
 }
 
 async function docsOfNotebook(box) {
@@ -175,10 +264,14 @@ module.exports = {
   parseSiyuanDate,
   buildDocInfo,
   buildFrontMatter,
+  buildTomlFrontMatter,
+  buildSectionFrontMatter,
+  frontmatterSyntax,
   buildTocTree,
   renderToc,
   wrapDocument,
   finalizeBody,
+  hasMeaningfulHtml,
   exportDocument,
   docsOfNotebook,
 };

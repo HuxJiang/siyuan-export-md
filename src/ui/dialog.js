@@ -11,7 +11,8 @@ const { listNotebooks } = require("../api");
 const { escapeHtml } = require("../utils");
 const { docsOfNotebook } = require("../document");
 const { exportSite } = require("../site");
-const { isDesktopWritable, defaultOutputDir, pickDirectory, writeFilesToFolder, joinRelative } = require("../output");
+const { defaultOutputDir, writeFilesToFolder, joinRelative } = require("../output");
+const { createSettings, applyOptions } = require("./settings");
 const { Dialog, showMessage } = require("siyuan");
 
 const DOC_ID_RE = /^\d{14}-[a-z0-9]{7}$/;
@@ -97,6 +98,7 @@ function currentDocId(protyle, activeProtyle) {
 
 function openDialog(plugin, protyle) {
   const self = plugin;
+  let settingsRef = null;
   if (self.dialog) {
     self.dialog.destroy();
     self.dialog = null;
@@ -105,66 +107,22 @@ function openDialog(plugin, protyle) {
   const content = `
 <div class="b3-dialog__content" style="padding: 8px 24px 0;">
   <div style="display:flex;flex-direction:column;gap:12px;font-size:13px;">
+    <div id="sySettings"></div>
     <div style="display:flex;align-items:center;gap:8px;">
-      <label style="width:82px;color:var(--b3-theme-on-surface-variant);">站点类型</label>
-      <select id="sySite" class="b3-select" style="width:170px;">
-        <option value="hugo">Hugo</option>
-        <option value="hexo">Hexo</option>
-      </select>
-      <select id="syHugoLayout" class="b3-select" style="width:230px;">
-        <option value="file">单文件 + static/siyuan/&lt;slug&gt;</option>
-        <option value="bundle">page bundle（content/posts/&lt;slug&gt;/）</option>
-      </select>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <label style="width:82px;color:var(--b3-theme-on-surface-variant);">导出范围</label>
+      <label style="width:88px;color:var(--b3-theme-on-surface-variant);">导出范围</label>
       <select id="syScope" class="b3-select" style="width:170px;">
         <option value="doc">当前文档</option>
         <option value="notebook">整个笔记本</option>
       </select>
       <select id="syNotebook" class="b3-select" style="width:230px;display:none;"></select>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <label style="width:82px;color:var(--b3-theme-on-surface-variant);">导出方式</label>
-      <select id="syOutputMode" class="b3-select" style="width:170px;">
-        <option value="zip">下载压缩包（.zip）</option>
-        <option value="folder">直接写入文件夹</option>
-      </select>
-      <span id="syOutputHint" style="color:var(--b3-theme-on-surface-variant);font-size:12px;"></span>
-    </div>
-    <div id="syOutDirRow" style="display:none;align-items:center;gap:8px;">
-      <label style="width:82px;color:var(--b3-theme-on-surface-variant);">导出目录</label>
-      <input id="syOutDir" class="b3-text-field fn__flex-1" placeholder="绝对路径，例如 C:\\Users\\你\\Documents\\siyuan-export" />
-      <button class="b3-button b3-button--outline" id="syPickDir" style="flex:none;white-space:nowrap;">选择…</button>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <label style="width:82px;color:var(--b3-theme-on-surface-variant);">标题语法</label>
-      <select id="syHeadingStyle" class="b3-select" style="width:170px;">
-        <option value="markdown">Markdown（## 标题）</option>
-        <option value="html">HTML（&lt;h2&gt;标题&lt;/h2&gt;）</option>
-      </select>
-      <span style="color:var(--b3-theme-on-surface-variant);font-size:12px;">正文其余部分始终是 HTML</span>
-    </div>
     <div id="syDocRow" style="display:flex;align-items:center;gap:8px;">
-      <label style="width:82px;color:var(--b3-theme-on-surface-variant);">文档 ID</label>
+      <label style="width:88px;color:var(--b3-theme-on-surface-variant);">文档 ID</label>
       <input id="syDocId" class="b3-text-field fn__flex-1" placeholder="留空则导出当前打开的文档" value="${escapeHtml(docId)}" />
     </div>
-    <div style="display:flex;flex-direction:column;gap:8px;padding-left:90px;">
-      <label style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="syAssets" class="b3-switch fn__flex-center" />
-        <span>把图片等附件一起打包，并重写引用路径</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="syDemote" class="b3-switch fn__flex-center" />
-        <span>标题自动降一级（页面标题占 h1）</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="sySbWidth" class="b3-switch fn__flex-center" />
-        <span>保留超级块栏宽（只取思源里的分栏宽度比例）</span>
-      </label>
-    </div>
     <div style="color:var(--b3-theme-on-surface-variant);font-size:12px;line-height:1.7;">
-      标题可选 Markdown（<code>## 标题</code>）或 HTML（<code>&lt;h2&gt;</code>），其余正文仍是 HTML，
+      配置与「导出管理」页共用，任何一处改动都会同步到另一处。
+      正文是 HTML，标题可用 Markdown（<code>## 标题</code>）或 HTML（<code>&lt;h2&gt;</code>），
       站点需允许内联 HTML（Hugo：<code>markup.goldmark.renderer.unsafe = true</code>）。
     </div>
     <div id="syStatus" style="color:var(--b3-theme-on-surface-variant);min-height:20px;line-height:1.6;">准备就绪</div>
@@ -180,90 +138,37 @@ function openDialog(plugin, protyle) {
     content,
     width: "720px",
     destroyCallback: () => {
+      if (settingsRef) {
+        settingsRef.destroy();
+        settingsRef = null;
+      }
       self.dialog = null;
     }
   });
   self.dialog = dialog;
 
   const body = dialog.element;
-  const siteEl = body.querySelector("#sySite");
-  const hugoLayoutEl = body.querySelector("#syHugoLayout");
   const scopeEl = body.querySelector("#syScope");
   const notebookEl = body.querySelector("#syNotebook");
   const docRowEl = body.querySelector("#syDocRow");
   const docIdEl = body.querySelector("#syDocId");
-  const outputModeEl = body.querySelector("#syOutputMode");
-  const outputHintEl = body.querySelector("#syOutputHint");
-  const outDirRowEl = body.querySelector("#syOutDirRow");
-  const outDirEl = body.querySelector("#syOutDir");
-  const pickDirEl = body.querySelector("#syPickDir");
-  const headingStyleEl = body.querySelector("#syHeadingStyle");
-  const assetsEl = body.querySelector("#syAssets");
-  const demoteEl = body.querySelector("#syDemote");
-  const sbWidthEl = body.querySelector("#sySbWidth");
   const statusEl = body.querySelector("#syStatus");
   const runEl = body.querySelector("#syRun");
   const cancelEl = body.querySelector("#syCancel");
 
-  siteEl.value = self.opts.site;
-  scopeEl.value = self.opts.scope;
-  assetsEl.checked = !!self.opts.copyAssets;
-  demoteEl.checked = !!self.opts.headingDemote;
-  headingStyleEl.value = self.opts.headingStyle === "html" ? "html" : "markdown";
-  sbWidthEl.checked = self.opts.superblockWidth !== false;
-  hugoLayoutEl.value = self.opts.hugoLayout;
-  outputModeEl.value = self.opts.outputMode === "folder" ? "folder" : "zip";
-  outDirEl.value = self.opts.outputDir || "";
+  /* 配置表单与「导出管理」页共用同一份 plugin.opts，改动即时互相同步 */
+  const settings = createSettings(self);
+  settingsRef = settings;
+  body.querySelector("#sySettings").appendChild(settings.element);
 
-  const canWriteDisk = isDesktopWritable();
-  const syncOutputMode = () => {
-    const isFolder = outputModeEl.value === "folder";
-    outDirRowEl.style.display = isFolder ? "flex" : "none";
-    if (!isFolder) {
-      outputHintEl.textContent = "";
-      return;
-    }
-    if (!canWriteDisk) {
-      outputHintEl.textContent = "当前环境不能直接写盘，请改用压缩包";
-      outputHintEl.style.color = "var(--b3-theme-error)";
-      return;
-    }
-    outputHintEl.style.color = "var(--b3-theme-on-surface-variant)";
-    outputHintEl.textContent = "按相对目录写盘，同名文件会被覆盖";
-    if (!outDirEl.value) outDirEl.placeholder = "留空则用 " + (defaultOutputDir() || "~/siyuan-export");
-  };
-
-  const syncSite = () => {
-    hugoLayoutEl.style.display = siteEl.value === "hugo" ? "" : "none";
-  };
+  scopeEl.value = self.opts.scope === "notebook" ? "notebook" : "doc";
   const syncScope = () => {
     const isNotebook = scopeEl.value === "notebook";
     notebookEl.style.display = isNotebook ? "" : "none";
     docRowEl.style.display = isNotebook ? "none" : "flex";
   };
-  syncSite();
   syncScope();
-  syncOutputMode();
-  siteEl.addEventListener("change", syncSite);
   scopeEl.addEventListener("change", syncScope);
-  outputModeEl.addEventListener("change", syncOutputMode);
-
-  pickDirEl.addEventListener("click", async () => {
-    if (!canWriteDisk) {
-      showMessage("当前环境不能直接写盘，请改用「下载压缩包」", 4000, "error");
-      return;
-    }
-    pickDirEl.disabled = true;
-    try {
-      const picked = await pickDirectory(outDirEl.value);
-      if (picked) outDirEl.value = picked;
-      else if (!outDirEl.value) setStatus("没有选择目录，可手动填写绝对路径");
-    } catch (e) {
-      setStatus("选择目录失败：" + ((e && e.message) || e));
-    } finally {
-      pickDirEl.disabled = false;
-    }
-  });
 
   listNotebooks().then((notebooks) => {
     notebookEl.innerHTML = notebooks
@@ -278,21 +183,16 @@ function openDialog(plugin, protyle) {
   cancelEl.addEventListener("click", () => dialog.destroy());
 
   runEl.addEventListener("click", async () => {
+    const config = settings.read();
     const opts = {
-      site: siteEl.value,
+      ...config,
       scope: scopeEl.value,
-      copyAssets: assetsEl.checked,
-      headingDemote: demoteEl.checked,
-      headingStyle: headingStyleEl.value,
-      superblockWidth: sbWidthEl.checked,
-      hugoLayout: hugoLayoutEl.value,
       hugoContentDir: self.opts.hugoContentDir,
       frontmatter: self.opts.frontmatter,
-      outputMode: outputModeEl.value === "folder" ? "folder" : "zip",
-      outputDir: outDirEl.value.trim()
+      outputDir: String(config.outputDir || "").trim()
     };
-    self.opts = { ...self.opts, ...opts };
-    void self.saveData("options", self.opts);
+    /* 配置控件已经在改动时写盘，这里再合并一次，把 outputDir 的 trim 结果落进去 */
+    applyOptions(self, opts);
     runEl.disabled = true;
     try {
       // 点「开始导出」时再取一次，面板打开后又切了文档也不会导错
@@ -317,6 +217,7 @@ async function recordExport(plugin, result, opts, notebookName, mode, targetDir,
   const log = plugin && plugin.exportLog;
   if (!log || typeof log.recordMany !== "function") return;
   const stamp = Date.now();
+  const tree = opts.site === "hugo" && opts.hugoLayout === "bundle";
   const records = (result.docs || []).map((doc) => ({
     docId: doc.id,
     title: doc.title,
@@ -324,10 +225,13 @@ async function recordExport(plugin, result, opts, notebookName, mode, targetDir,
     box: doc.box,
     notebook: notebookName || "",
     site: opts.site,
+    layout: opts.hugoLayout,
     mode,
-    relPath: doc.path,
+    /* 文档树 bundle 记页面目录（一页可能有两个 md），其余布局记 md 文件 */
+    relPath: tree ? doc.pageDir || doc.path : doc.path,
+    pageDir: tree ? doc.pageDir || "" : "",
     targetDir: mode === "folder" ? targetDir || "" : "",
-    fullPath: mode === "folder" ? joinRelative(targetDir || "", doc.path) : "",
+    fullPath: mode === "folder" ? joinRelative(targetDir || "", tree ? doc.pageDir || doc.path : doc.path) : "",
     zipName: mode === "zip" ? zipName || "" : "",
     exportedAt: stamp
   }));
@@ -346,9 +250,15 @@ async function exportDocs(plugin, opts, docIds, notebookName, setStatus) {
   const self = plugin;
   const status = typeof setStatus === "function" ? setStatus : () => {};
   status(`开始导出，共 ${docIds.length} 篇…`);
-  const result = await exportSite(docIds, opts, notebookName, (done, total, title) => {
-    status(`(${done}/${total}) ${title}`);
-  });
+  const result = await exportSite(
+    docIds,
+    opts,
+    notebookName,
+    (done, total, title) => {
+      status(`(${done}/${total}) ${title}`);
+    },
+    { exportLog: self.exportLog, pathOverrides: self.pathOverrides || null }
+  );
 
   const warnText = result.warnings.length
     ? `；${result.warnings.length} 条告警见 ${

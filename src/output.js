@@ -26,6 +26,33 @@ function isDesktopWritable() {
   return !!nodeModules();
 }
 
+/**
+ * 判断本地路径是否存在。拿不到 fs（移动端/网页端）时返回 null，
+ * 让调用方区分「确定不存在」和「没法检查」。
+ */
+function pathExists(target) {
+  const mods = nodeModules();
+  if (!mods || !target) return null;
+  try {
+    return mods.fs.existsSync(target);
+  } catch (e) {
+    return null;
+  }
+}
+
+/** 是否是一个已存在的目录；拿不到 fs 时返回 null */
+function isDirectory(target) {
+  const mods = nodeModules();
+  if (!mods || !target) return null;
+  try {
+    if (!mods.fs.existsSync(target)) return false;
+    const stat = mods.fs.statSync(target);
+    return !!stat && typeof stat.isDirectory === "function" ? stat.isDirectory() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 /** 展开开头的 ~ / ~\，其余原样返回 */
 function expandHome(dir) {
   const text = String(dir == null ? "" : dir).trim();
@@ -149,6 +176,8 @@ function joinRelative(dir, rel) {
 module.exports = {
   nodeModules,
   isDesktopWritable,
+  pathExists,
+  isDirectory,
   expandHome,
   defaultOutputDir,
   pickDirectory,

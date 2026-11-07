@@ -99,14 +99,24 @@ check("未知 site 归一为 hugo", normalized.docs["20240101000000-hijklmn"].si
 check("空数据返回空表", Object.keys(logMod.normalizeStore(null).docs).length === 0);
 
 check(
-  "文件夹模式展示绝对路径",
-  logMod.pathOf(normalized.docs["20240101000000-abcdefg"]) === "C:\\out\\content\\notes\\编程.md",
+  "文件夹模式展示相对导出目录的路径",
+  logMod.pathOf(normalized.docs["20240101000000-abcdefg"]) === "content/notes/编程.md",
   logMod.pathOf(normalized.docs["20240101000000-abcdefg"])
 );
 check(
-  "压缩包模式展示包名 + 包内路径",
-  logMod.pathOf(normalized.docs["20240101000000-hijklmn"]) === "siyuan-hugo-1.zip › content/notes/Go.md",
+  "压缩包模式展示包内相对路径",
+  logMod.pathOf(normalized.docs["20240101000000-hijklmn"]) === "content/notes/Go.md",
   logMod.pathOf(normalized.docs["20240101000000-hijklmn"])
+);
+check(
+  "悬停提示里保留绝对路径",
+  logMod.detailOf(normalized.docs["20240101000000-abcdefg"]).indexOf("C:\\out\\content\\notes\\编程.md") !== -1,
+  logMod.detailOf(normalized.docs["20240101000000-abcdefg"])
+);
+check(
+  "悬停提示里保留压缩包名",
+  logMod.detailOf(normalized.docs["20240101000000-hijklmn"]).indexOf("siyuan-hugo-1.zip") !== -1,
+  logMod.detailOf(normalized.docs["20240101000000-hijklmn"])
 );
 
 /* ExportLog 持久化 */

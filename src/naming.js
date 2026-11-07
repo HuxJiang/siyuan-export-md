@@ -40,21 +40,54 @@ function asciiFileName(filename) {
   return `${safe}${ext}`;
 }
 
-function docPaths(doc, opts) {
+/**
+ * 站点文件路径。
+ * plan 是 path-plan 算出的页面目录：Hugo 的 page bundle 布局下按文档树生成
+ *   - 无子页面：<页面目录>/index.md（叶子 bundle）
+ *   - 有子页面：<页面目录>/_index.md 做栏目页，正文在同名子目录的 index.md
+ * 没有 plan 时（直接调用 / 旧数据）退回原来的固定布局。
+ */
+function docPaths(doc, opts, plan) {
+  if (opts.site === "hugo" && opts.hugoLayout === "bundle" && plan && plan.dir) {
+    const pageDir = plan.dir;
+    if (plan.hasChildren) {
+      const bodyDir = plan.bodyDir || `${pageDir}/${plan.seg}`;
+      return {
+        pageDir,
+        mdPath: `${pageDir}/_index.md`,
+        bodyPath: `${bodyDir}/index.md`,
+        assetDir: bodyDir,
+        assetPrefix: "./"
+      };
+    }
+    return {
+      pageDir,
+      mdPath: `${pageDir}/index.md`,
+      bodyPath: `${pageDir}/index.md`,
+      assetDir: pageDir,
+      assetPrefix: "./"
+    };
+  }
   if (opts.site === "hugo") {
     if (opts.hugoLayout === "bundle") {
-      const dir = `content/posts/${doc.slug}`;
-      return { mdPath: `${dir}/index.md`, assetDir: dir, assetPrefix: "./" };
+      /* 没有规划时的兜底：直接用页面标题做目录，不再套 content/posts */
+      const name = String(doc.title || doc.slug || "untitled").replace(/[\\/:*?"<>|]+/g, "-").trim() || "untitled";
+      const dir = name;
+      return { pageDir: dir, mdPath: `${dir}/index.md`, bodyPath: `${dir}/index.md`, assetDir: dir, assetPrefix: "./" };
     }
     const dir = String(opts.hugoContentDir || "notes").replace(/^\/+|\/+$/g, "") || "notes";
     return {
+      pageDir: `content/${dir}/${doc.slug}`,
       mdPath: `content/${dir}/${doc.slug}.md`,
+      bodyPath: `content/${dir}/${doc.slug}.md`,
       assetDir: `static/siyuan/${doc.slug}`,
       assetPrefix: `/siyuan/${doc.slug}/`
     };
   }
   return {
+    pageDir: `source/_posts/${doc.slug}`,
     mdPath: `source/_posts/${doc.slug}.md`,
+    bodyPath: `source/_posts/${doc.slug}.md`,
     assetDir: `source/_posts/${doc.slug}`,
     assetPrefix: `${doc.slug}/`
   };
