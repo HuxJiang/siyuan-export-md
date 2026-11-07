@@ -332,15 +332,20 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   check("分类取笔记本", content.includes("categories: [笔记本]"));
   check("正文包在 sy-doc 里", content.includes('<div class="sy-doc">'));
 
-  check("标题输出 h3（h2 降一级）", content.includes('<h3 id="标题-A">标题 A</h3>'), content);
+  check("标题输出 h3（h2 降一级），id 用块 id", content.includes('<h3 id="b1">标题 A</h3>'), content);
   check(
-    "段落是 <p>，行内公式与粗体为 HTML",
-    content.includes('<p>行内公式 <span class="math-inline" data-latex="x_i">x_i</span> 与 <strong>粗体</strong></p>'),
+    "id 挂在块元素上（段落 / 表格）",
+    content.includes('<p id="b2">') && content.includes('<div class="table-wrapper" id="b5">'),
     content
   );
-  check("块级公式输出 math-block", content.includes('<div class="math-block" data-latex="a_b = c">a_b = c</div>'));
-  check("图片块输出 figure + 重写后的 src", content.includes('<figure class="sy-image"><img src="/siyuan/测试文档/pic.png" alt="图"></figure>'), content);
-  check("表格包进 table-wrapper", content.includes('<div class="table-wrapper">'));
+  check(
+    "段落是 <p>，行内公式与粗体为 HTML",
+    content.includes('<p id="b2">行内公式 <span class="math-inline" data-latex="x_i">x_i</span> 与 <strong>粗体</strong></p>'),
+    content
+  );
+  check("块级公式输出 math-block", content.includes('<div class="math-block" data-latex="a_b = c" id="b3">a_b = c</div>'));
+  check("图片块输出 figure + 重写后的 src", content.includes('<figure class="sy-image" id="b4"><img src="/siyuan/测试文档/pic.png" alt="图"></figure>'), content);
+  check("表格包进 table-wrapper", content.includes('<div class="table-wrapper" id="b5">'));
   check("表格保留 colspan", /colspan="2"/.test(content));
   check("表格保留 rowspan", /rowspan="2"/.test(content));
   check("表格保留 colgroup", content.includes("<colgroup>"));
@@ -350,10 +355,10 @@ check("暴露自测内部函数", !!exportsObj.__internals);
     /<a href="\/siyuan\/测试文档\/asset-[a-z0-9]+\.pdf" title="报告\.pdf">报告\.pdf<\/a>/.test(content),
     content
   );
-  check("有序列表输出 <ol> + <li>", content.includes("<ol><li>第一条<ul><li>嵌套项</li></ul></li><li>第二条</li></ol>"), content);
-  check("代码块输出 pre/code", content.includes('<pre class="code-block" data-lang="js"><code class="language-js">'), content);
+  check("有序列表输出 <ol> + <li>，列表项带块 id", content.includes('<ol id="b7"><li id="b7a">第一条<ul id="b7an"><li id="b7an1">嵌套项</li></ul></li><li id="b7b">第二条</li></ol>'), content);
+  check("代码块输出 pre/code", content.includes('<pre class="code-block" data-lang="js" id="b8"><code class="language-js">'), content);
   check("代码块语言取自 subType", content.includes('data-lang="js"'));
-  check("目录输出 nav + 锚点", content.includes('<nav class="sy-toc">') && content.includes('<a href="#标题-A">标题 A</a>'), content);
+  check("目录输出 nav + 锚点", content.includes('<nav class="sy-toc">') && content.includes('<a href="#b1">标题 A</a>'), content);
 
   check("正文不再出现 Markdown 标题语法", !/^#{1,6} /m.test(content.split("---\n").pop()), content);
   check("正文不再出现 Markdown 图片语法", !content.includes("!["));
@@ -372,14 +377,13 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   console.log("\n--- 生成的内容（Markdown 标题 + HTML 正文） ---\n" + mdContent + "\n--- end ---\n");
 
   check(
-    "标题输出 ###（h2 降一级），带同名锚点",
-    mdContent.includes('### <a id="标题-A"></a>标题 A'),
+    "标题输出 ###（h2 降一级），标题行内用 <a> 挂块 id",
+    mdContent.includes('### <a id="b1"></a>标题 A'),
     mdContent
   );
-  check("Markdown 标题前有空行", /\n\n### <a id="标题-A"><\/a>/.test(mdContent), mdContent);
-  check("Markdown 标题后有空行", /### <a id="标题-A"><\/a>标题 A\n\n/.test(mdContent), mdContent);
-  check("目录锚点指向标题里的 <a id>", mdContent.includes('<a href="#标题-A">标题 A</a>'), mdContent);
-  check("其余块仍是 HTML", mdContent.includes('<p>行内公式 <span class="math-inline"'), mdContent);
+  check("Markdown 标题前后有空行", /\n\n### <a id="b1"><\/a>标题 A\n\n/.test(mdContent), mdContent);
+  check("目录锚点指向标题 id", mdContent.includes('<a href="#b1">标题 A</a>'), mdContent);
+  check("其余块仍是 HTML", mdContent.includes('<p id="b2">行内公式 <span class="math-inline"'), mdContent);
   check("Markdown 模式不再输出 <h3> 标题", !mdContent.includes("<h3"), mdContent);
   check("开标签后有空行（首个块是标题时不会被 HTML 块吞掉）", mdContent.includes('<div class="sy-doc">\n\n'), mdContent);
 

@@ -227,6 +227,31 @@ function uniqueHeadingId(text, ctx) {
   return count === 1 ? base : `${base}-${count}`;
 }
 
+function blockIdOf(el, meta) {
+  return (el && el.getAttribute("data-node-id")) || (meta && meta.id) || "";
+}
+
+/**
+ * 把思源块 id 挂到块根元素上（`<p id="块id">`），用于站内 `#块id` 跳转。
+ * 只改开标签，不动内容；取不到合法开标签时原样返回。
+ */
+function attachBlockId(html, id) {
+  const src = String(html == null ? "" : html);
+  if (!id) return src;
+  const m = src.match(/^<([a-zA-Z][\w:-]*)([^>]*)>/);
+  if (!m) return src;
+  const tag = m[1];
+  let attrs = m[2] || "";
+  let slash = "";
+  const selfClose = attrs.match(/\s*\/\s*$/);
+  if (selfClose) {
+    slash = selfClose[0];
+    attrs = attrs.slice(0, attrs.length - slash.length);
+  }
+  const rest = src.slice(m[0].length);
+  return `<${tag}${attrs} id="${escapeHtml(id)}"${slash}>${rest}`;
+}
+
 function renderHeading(el, ctx, meta) {
   const doc = el.ownerDocument;
   let level = headingLevelOf(el, meta);
@@ -239,14 +264,16 @@ function renderHeading(el, ctx, meta) {
   if (!inner) return "";
 
   const text = textOf(holder).replace(/\s+/g, " ").trim();
-  const id = uniqueHeadingId(text || "section", ctx);
+  // 标题锚点同样用思源块 id：Markdown 模式走站点支持的 `{#id}` 标题属性，
+  // 生成后仍是 `<h2 id="块id">`；HTML 模式直接写 id。取不到块 id 才退回文字 slug。
+  const id = blockIdOf(el, meta) || uniqueHeadingId(text || "section", ctx);
   ctx.headings.push({ level, text, id });
 
-  // Markdown 标题：`## 标题`。行内仍是 HTML（粗体/公式/链接），站点开 unsafe 即可；
-  // 标题前挂一个空 <a id>，让目录锚点不依赖站点自己生成的 heading id。
   if (ctx.opts && ctx.opts.headingStyle === "markdown") {
     const inline = inner.replace(/\s*\n\s*/g, " ").trim();
-    return `${"#".repeat(level)} <a id="${escapeHtml(id)}"></a>${inline}`;
+    const hashes = "#".repeat(level);
+    // Markdown 标题没法直接带 id 属性，标题行里用 <a id> 挂在标题文字前面
+    return `${hashes} <a id="${escapeHtml(id)}"></a>${inline}`;
   }
 
   return `<h${level} id="${escapeHtml(id)}">${inner}</h${level}>`;
@@ -292,6 +319,10 @@ function checkboxChecked(box) {
 function renderListItem(li, list, ctx) {
   const doc = li.ownerDocument;
   const item = doc.createElement("li");
+
+  // 列表项本身也是块，直接给 <li> 挂 id
+  const liId = blockIdOf(li, null);
+  if (liId) item.setAttribute("id", liId);
 
   const box = ownCheckbox(li);
   if (box) {
@@ -531,8 +562,12 @@ function styleChildRoot(html, layout, ratio) {
   const src = String(html || "").trim();
   if (!src) return "";
   if (typeof DOMParser === "undefined") return src;
+  // 块前面可能已经挂了跳转锚点：分栏时要把锚点塞进子块根节点里，
+  // 否则 flex 容器会多出一个零宽 item、吃掉 gap。
+  const anchorPrefix = (src.match(/^(?:<a\b[^>]*><\/a>)+/i) || [""])[0];
+  const body = anchorPrefix ? src.slice(anchorPrefix.length) : src;
   try {
-    const doc = new DOMParser().parseFromString(src, "text/html");
+    const doc = new DOMParser().parseFromString(body, "text/html");
     const root = doc.body.firstElementChild;
     if (!root || doc.body.children.length !== 1) return src;
 
@@ -545,6 +580,7 @@ function styleChildRoot(html, layout, ratio) {
     const cls = classTokens(root);
     cls.push("sy-superblock-child");
     root.setAttribute("class", Array.from(new Set(cls)).join(" "));
+    if (anchorPrefix) root.insertAdjacentHTML("afterbegin", anchorPrefix);
     return root.outerHTML;
   } catch (e) {
     return src;
@@ -660,52 +696,71 @@ function renderUnknown(el, ctx) {
 function renderElement(el, ctx, meta) {
   if (!el || el.nodeType !== 1) return "";
   const type = blockTypeOf(el, meta && meta.type);
+  let html;
   switch (type) {
     case "h":
       return renderHeading(el, ctx, meta);
     case "p":
-      return renderParagraph(el, ctx);
+      html = renderParagraph(el, ctx);
+      break;
     case "l":
-      return renderList(el, ctx);
+      html = renderList(el, ctx);
+      break;
     case "i":
-      return renderSingleListItem(el, ctx);
+      html = renderSingleListItem(el, ctx);
+      break;
     case "b":
-      return renderBlockquote(el, ctx);
+      html = renderBlockquote(el, ctx);
+      break;
     case "c":
-      return renderCodeBlock(el, ctx, meta);
+      html = renderCodeBlock(el, ctx, meta);
+      break;
     case "m":
-      return renderMathBlock(el);
+      html = renderMathBlock(el);
+      break;
     case "t":
-      return renderTableBlock(el);
+      html = renderTableBlock(el);
+      break;
     case "img":
-      return renderImageBlock(el);
+      html = renderImageBlock(el);
+      break;
     case "callout":
-      return renderCallout(el, ctx, meta);
+      html = renderCallout(el, ctx, meta);
+      break;
     case "s":
-      return renderSuperblock(el, ctx);
+      html = renderSuperblock(el, ctx);
+      break;
     case "av":
-      return renderDatabase(el, ctx);
+      html = renderDatabase(el, ctx);
+      break;
     case "diagram":
-      return renderDiagram(el, ctx, meta);
+      html = renderDiagram(el, ctx, meta);
+      break;
     case "widget":
-      return renderWidget(el, ctx);
+      html = renderWidget(el, ctx);
+      break;
     case "iframe":
     case "video":
     case "audio":
-      return renderMedia(el, ctx);
+      html = renderMedia(el, ctx);
+      break;
     case "html":
-      return renderHtmlBlock(el);
+      html = renderHtmlBlock(el);
+      break;
     case "toc":
-      return TOC_PLACEHOLDER;
+      return attachBlockId(TOC_PLACEHOLDER, blockIdOf(el, meta));
     case "query_embed":
       ctx.warnings.push(`查询嵌入未展开：${el.getAttribute("data-node-id") || ""}`);
-      return (
+      return attachBlockId(
         '<div class="sy-placeholder" style="padding:12px;border:1px dashed #bbb;color:#888;font-size:13px">' +
-        "思源查询嵌入块：依赖动态查询，静态站点中不生效。</div>"
+          "思源查询嵌入块：依赖动态查询，静态站点中不生效。</div>",
+        blockIdOf(el, meta)
       );
     default:
-      return renderUnknown(el, ctx);
+      html = renderUnknown(el, ctx);
   }
+  if (!html) return "";
+  return attachBlockId(html, blockIdOf(el, meta));
 }
 
 module.exports = {

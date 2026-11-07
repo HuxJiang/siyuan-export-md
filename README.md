@@ -7,20 +7,21 @@
 
 <nav class="sy-toc">…</nav>
 
-### <a id="小节标题"></a>小节标题
+### <a id="20240101120000-abcdefg"></a>小节标题
 
-<p>正文 <strong>粗体</strong> 与 <span class="math-inline" data-latex="x_i">x_i</span></p>
+<p id="20240101120100-bcdefgh">正文 <strong>粗体</strong> 与 <span class="math-inline" data-latex="x_i">x_i</span></p>
 …
 </div>
 ```
 
-标题行是 `## 标题` 形式的 Markdown，前面挂一个空 `<a id>` 供目录锚点使用；除标题外，段落、列表、表格、代码、公式、标注块、超级块全部是语义 HTML，不用 Markdown 语法（没有 `![图片]()`、GFM 管道表、代码围栏、rawhtml 短代码）。导出面板里的「标题语法」可在 Markdown 与 HTML 之间切换。
+标题行是 `## 标题` 形式的 Markdown，标题行内挂一个空 `<a id="思源块id">` 供跳转与目录使用；除标题外，段落、列表、表格、代码、公式、标注块、超级块全部是语义 HTML，不用 Markdown 语法（没有 `![图片]()`、GFM 管道表、代码围栏、rawhtml 短代码）。导出面板里的「标题语法」可在 Markdown 与 HTML 之间切换。
 
 `<div class="sy-doc">` 开标签后固定留一个空行：正文第一个块如果是标题，紧跟开标签会被 goldmark 当成 HTML 块的一部分原样输出，空行才能结束 HTML 块、让 `## 标题` 被解析。
 
 主要契约：
 
-- **标题** → `## 标题`（Markdown，可切回 `<h1>`…`<h6>`；默认降一级，锚点 `id` 由标题文字生成）
+- **块 id** → id 直接挂在块元素上（`<p id="思源块id">`、`<li id="…">`、`<div class="table-wrapper" id="…">`、分栏子块在子块根节点上），站内可用 `#<块id>` 跳到对应块
+- **标题** → `## <a id="思源块id"></a>标题`（Markdown，可切回 `<h1 id="…">…</h1>`；默认降一级，标题行内用 `<a>` 挂块 id，目录也指向它）
 - **段落** → `<p>`，行内 `strong / em / u / s / mark / kbd / code / a / img` 保留语义
 - **列表** → 真正的 `<ul>` / `<ol>` / `<li>`，任务列表带 `<input type="checkbox" disabled>`，嵌套列表就是嵌套 `<ul>`
 - **引用** → `<blockquote>`，内部子块同样是 HTML

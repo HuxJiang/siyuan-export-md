@@ -198,7 +198,7 @@ function newCtx(opts) {
   const tableCtx = newCtx();
   const tableHtml = await I.renderBlockHtml({ id: "t1", type: "t", subtype: "" }, tableCtx);
   console.log(tableHtml);
-  check("包进 table-wrapper", tableHtml.includes('<div class="table-wrapper">'));
+  check("包进 table-wrapper", /<div class="table-wrapper"[^>]*>/.test(tableHtml));
   check("保留 colspan", /colspan="2"/.test(tableHtml));
   check("保留 rowspan", /rowspan="2"/.test(tableHtml));
   check("保留 colgroup", tableHtml.includes("<colgroup>"));
@@ -236,7 +236,7 @@ function newCtx(opts) {
   check("callout 容器带 subtype", calloutHtml.includes('<div class="callout callout-tip"'), calloutHtml);
   check("使用块内自定义标题与图标", calloutHtml.includes("💡 自定义标题"), calloutHtml);
   check("body 包在 callout-body 内", calloutHtml.includes('<div class="callout-body">'));
-  check("子块内容进入 body", calloutHtml.includes("<p>正文内容</p>"), calloutHtml);
+  check("子块内容进入 body", /<p[^>]*>正文内容<\/p>/.test(calloutHtml), calloutHtml);
   check("没有把 callout 头部重复塞进 body", (calloutHtml.match(/自定义标题/g) || []).length === 1, calloutHtml);
 
   console.log("\n## 超级块（col 里套 row）");
@@ -269,28 +269,28 @@ function newCtx(opts) {
   const quoteHtml = await I.renderBlockHtml({ id: "b1", type: "b" }, newCtx());
   console.log(quoteHtml);
   check("输出 blockquote 包住子块", quoteHtml.startsWith("<blockquote>") && quoteHtml.includes("</blockquote>"), quoteHtml);
-  check("两个子段落都在里面", quoteHtml.includes("<p>左栏</p>") && quoteHtml.includes("<p>右栏</p>"), quoteHtml);
+  check("两个子段落都在里面", /<p[^>]*>左栏<\/p>/.test(quoteHtml) && /<p[^>]*>右栏<\/p>/.test(quoteHtml), quoteHtml);
 
   console.log("\n## 列表");
   const listHtml = await I.renderBlockHtml({ id: "l1", type: "l", subType: "o" }, newCtx());
   console.log(listHtml);
-  check("有序列表输出 <ol>", listHtml.includes("<ol>") && listHtml.includes("</ol>"), listHtml);
-  check("列表项输出 <li>", (listHtml.match(/<li>/g) || []).length === 3, listHtml);
-  check("嵌套无序列表输出 <ul>", listHtml.includes("<ul>") && listHtml.includes("</ul>"), listHtml);
+  check("有序列表输出 <ol>", /<ol[^>]*>/.test(listHtml) && listHtml.includes("</ol>"), listHtml);
+  check("列表项输出 <li>", (listHtml.match(/<li\b/g) || []).length === 3, listHtml);
+  check("嵌套无序列表输出 <ul>", /<ul[^>]*>/.test(listHtml) && listHtml.includes("</ul>"), listHtml);
   check("不残留 data-marker / li、list 类名", !/data-marker|class="li"|class="list"/.test(listHtml), listHtml);
   check("有序列表序号不被重复写进正文", !listHtml.includes("1."), listHtml);
 
   console.log("\n## 纯图片列表项");
   const imgListHtml = await I.renderBlockHtml({ id: "l2", type: "l", subType: "u" }, newCtx());
   console.log(imgListHtml);
-  check("没有文字只有图片的列表项不被丢弃", (imgListHtml.match(/<li>/g) || []).length === 2, imgListHtml);
-  check("条目内图片按 figure 输出", (imgListHtml.match(/<figure class="sy-image">/g) || []).length === 3, imgListHtml);
+  check("没有文字只有图片的列表项不被丢弃", (imgListHtml.match(/<li\b/g) || []).length === 2, imgListHtml);
+  check("条目内图片按 figure 输出", (imgListHtml.match(/<figure class="sy-image"/g) || []).length === 3, imgListHtml);
   check("图片 src 全部保留", imgListHtml.includes("assets/a.png") && imgListHtml.includes("assets/b.png") && imgListHtml.includes("assets/c.png"), imgListHtml);
 
   console.log("\n## 图片 / 链接");
   const imgHtml = await I.renderBlockHtml({ id: "i1", type: "img" }, newCtx());
   console.log(imgHtml);
-  check("图片块输出 figure", imgHtml.startsWith('<figure class="sy-image"><img'), imgHtml);
+  check("图片块输出 figure", /^<figure class="sy-image" id="i1"><img/.test(imgHtml), imgHtml);
   check("图片 src/alt 保留", imgHtml.includes('src="assets/cat.png"') && imgHtml.includes('alt="猫"'), imgHtml);
 
   const linkHtml = await I.renderBlockHtml({ id: "p4", type: "p" }, newCtx());
@@ -302,7 +302,7 @@ function newCtx(opts) {
   console.log("\n## 代码块");
   const codeHtml = await I.renderBlockHtml({ id: "c2", type: "c", subType: "python" }, newCtx());
   console.log(codeHtml);
-  check("输出 pre + code", codeHtml.includes('<pre class="code-block" data-lang="python"><code class="language-python">'), codeHtml);
+  check("输出 pre + code", codeHtml.includes('<pre class="code-block" data-lang="python" id="c2"><code class="language-python">'), codeHtml);
   check("代码内容保留换行", codeHtml.includes("def f():"), codeHtml);
   check("行号栏没有进正文", !codeHtml.includes("protyle-linenumber"), codeHtml);
 
@@ -316,23 +316,23 @@ function newCtx(opts) {
   const headCtx = newCtx({ headingDemote: true, headingStyle: "html" });
   const headHtml = await I.renderBlockHtml({ id: "h1", type: "h" }, headCtx);
   console.log(headHtml);
-  check("HTML 模式：标题降一级并保留行内 em", headHtml === '<h3 id="小节-标题">小节 <em>标题</em></h3>', headHtml);
-  check("目录收集到标题", headCtx.headings.length === 1 && headCtx.headings[0].id === "小节-标题", JSON.stringify(headCtx.headings));
+  check("HTML 模式：标题降一级并保留行内 em", headHtml === '<h3 id="h1">小节 <em>标题</em></h3>', headHtml);
+  check("目录收集到标题（用块 id）", headCtx.headings.length === 1 && headCtx.headings[0].id === "h1", JSON.stringify(headCtx.headings));
 
   const headNoDemote = await I.renderBlockHtml({ id: "h1", type: "h" }, newCtx({ headingDemote: false, headingStyle: "html" }));
-  check("关闭降级时输出 h2", headNoDemote.startsWith("<h2 "), headNoDemote);
+  check("关闭降级时输出 h2", headNoDemote.startsWith("<h2"), headNoDemote);
 
   const mdCtx = newCtx({ headingDemote: true, headingStyle: "markdown" });
   const mdHtml = await I.renderBlockHtml({ id: "h1", type: "h" }, mdCtx);
   console.log(mdHtml);
   check(
-    "Markdown 模式：输出 ### 标题并带同名锚点",
-    mdHtml === '### <a id="小节-标题"></a>小节 <em>标题</em>',
+    "Markdown 模式：输出 ### 标题，标题行内用 <a> 挂块 id",
+    mdHtml === '### <a id="h1"></a>小节 <em>标题</em>',
     mdHtml
   );
 
   const mdNoDemote = await I.renderBlockHtml({ id: "h1", type: "h" }, newCtx({ headingDemote: false, headingStyle: "markdown" }));
-  check("Markdown 模式关闭降级时输出 ##", mdNoDemote.startsWith('## <a id="小节-标题"></a>'), mdNoDemote);
+  check("Markdown 模式关闭降级时输出 ##", mdNoDemote.startsWith('## <a id="h1"></a>'), mdNoDemote);
 
   const inlineHtml = await I.renderBlockHtml({ id: "r1", type: "p" }, newCtx());
   console.log(inlineHtml);
