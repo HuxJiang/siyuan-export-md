@@ -18,6 +18,7 @@ const { exportTable } = require("./render/exporters/table");
 const { exportCallout } = require("./render/exporters/callout");
 const { exportImage } = require("./render/exporters/image");
 const { renderBlockHtml, renderChildrenHtml, wrapHtmlFragment } = require("./render/html");
+const { TOPBAR_ICON } = require("./ui/topbar-icon");
 const { Plugin } = require("siyuan");
 
 class SiYuanMarkdownExporter extends Plugin {
@@ -38,7 +39,7 @@ class SiYuanMarkdownExporter extends Plugin {
     }
 
     this.addTopBar({
-      icon: "iconExport",
+      icon: TOPBAR_ICON,
       title: String((this.i18n && this.i18n.topbarTitle) || "导出 Markdown"),
       position: "right",
       callback: () => this.openDialog(),
