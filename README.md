@@ -4,6 +4,7 @@
 
 ```markdown
 <div class="sy-doc">
+
 <nav class="sy-toc">…</nav>
 
 ### <a id="小节标题"></a>小节标题
@@ -14,6 +15,8 @@
 ```
 
 标题行是 `## 标题` 形式的 Markdown，前面挂一个空 `<a id>` 供目录锚点使用；除标题外，段落、列表、表格、代码、公式、标注块、超级块全部是语义 HTML，不用 Markdown 语法（没有 `![图片]()`、GFM 管道表、代码围栏、rawhtml 短代码）。导出面板里的「标题语法」可在 Markdown 与 HTML 之间切换。
+
+`<div class="sy-doc">` 开标签后固定留一个空行：正文第一个块如果是标题，紧跟开标签会被 goldmark 当成 HTML 块的一部分原样输出，空行才能结束 HTML 块、让 `## 标题` 被解析。
 
 主要契约：
 

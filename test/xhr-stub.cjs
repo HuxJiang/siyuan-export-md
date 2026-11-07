@@ -19,7 +19,8 @@ function installXhrStub(root, name) {
     };
     this.send = () => {
       const at = this._url.indexOf(prefix);
-      const rel = at >= 0 ? this._url.slice(at + prefix.length) : "";
+      // 加载器会追加 ?v=... 防止浏览器缓存，映射文件时要去掉查询串
+      const rel = at >= 0 ? this._url.slice(at + prefix.length).split("?")[0] : "";
       const file = path.resolve(root, rel);
       if (!rel || !file.startsWith(path.resolve(root)) || !fs.existsSync(file)) {
         this.status = 404;

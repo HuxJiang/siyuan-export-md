@@ -360,6 +360,7 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   check("正文不再出现 GFM 表格分隔行", !content.includes("| --- |"));
   check("正文不再出现 rawhtml 短代码", !content.includes("{{< rawhtml"));
   check("整篇没有连续空行（HTML 块才不会被截断）", !/\n[ \t]*\n/.test(content), content);
+  check("HTML 模式开标签后不插空行", !content.includes('<div class="sy-doc">\n\n'), content);
   check("不残留编辑器私有属性", !/data-node-id|data-node-index|protyle-|contenteditable/.test(content), content);
 
   /* ---------------------------------------------------------------- *
@@ -380,6 +381,7 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   check("目录锚点指向标题里的 <a id>", mdContent.includes('<a href="#标题-A">标题 A</a>'), mdContent);
   check("其余块仍是 HTML", mdContent.includes('<p>行内公式 <span class="math-inline"'), mdContent);
   check("Markdown 模式不再输出 <h3> 标题", !mdContent.includes("<h3"), mdContent);
+  check("开标签后有空行（首个块是标题时不会被 HTML 块吞掉）", mdContent.includes('<div class="sy-doc">\n\n'), mdContent);
 
   const result = await I.exportSite(["doc1"], opts, "笔记本", null);
   const zipText = Buffer.from(result.zip).toString("utf8");

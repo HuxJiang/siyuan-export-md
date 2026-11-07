@@ -121,8 +121,13 @@ function renderToc(headings) {
  * 3. 正文组装
  * ------------------------------------------------------------------ */
 
-function wrapDocument(body) {
-  return `<div class="sy-doc">\n${body}\n</div>`;
+function wrapDocument(body, opts) {
+  // Markdown 标题模式下，开标签后面必须留一个空行：正文第一个块如果是 `## 标题`，
+  // 紧跟 <div> 会被 goldmark 当成 HTML 块的一部分原样输出；空行才能结束 HTML 块。
+  // 纯 HTML 模式没有 Markdown 块，保持压缩，不插空行。
+  const inner = String(body == null ? "" : body).replace(/^[ \t]*\n+/, "");
+  const gap = opts && opts.headingStyle === "markdown" ? "\n\n" : "\n";
+  return `<div class="sy-doc">${gap}${inner}\n</div>`;
 }
 
 function finalizeBody(body, ctx) {
@@ -157,7 +162,7 @@ async function exportDocument(docId, opts, assets, notebookName) {
   body = await rewriteAssetRefs(body, ctx);
   const main = finalizeBody(body, ctx);
   const paths = docPaths(doc, opts);
-  const content = `${buildFrontMatter(doc, opts)}${main ? wrapDocument(main) + "\n" : ""}`;
+  const content = `${buildFrontMatter(doc, opts)}${main ? wrapDocument(main, opts) + "\n" : ""}`;
   return { path: paths.mdPath, content, warnings: ctx.warnings, doc };
 }
 

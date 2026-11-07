@@ -44,7 +44,10 @@
   function readViaXHR(url) {
     if (typeof XMLHttpRequest !== "function") throw new Error("XMLHttpRequest 不可用");
     var xhr = new XMLHttpRequest();
-    xhr.open("GET", url, false);
+    // 内核的 /plugins/ 静态目录不带 Cache-Control，浏览器会按 Last-Modified 启发式缓存；
+    // 重启插件时若命中缓存会读到旧模块，所以每次加载都加一个时间戳参数
+    var bust = "v=" + Date.now() + "-" + Math.random().toString(36).slice(2);
+    xhr.open("GET", url + (url.indexOf("?") >= 0 ? "&" : "?") + bust, false);
     xhr.send(null);
     var status = xhr.status;
     if (status && status !== 200) throw new Error("HTTP " + status + " " + url);
