@@ -158,6 +158,7 @@ Hexo 默认的 marked 渲染器会把裸 HTML 原样透传；不要额外装会�
 .sy-doc .sy-image img { max-width: 100%; height: auto; }
 .sy-doc .sy-image figcaption { font-size: .85em; color: #777; }
 .sy-doc .sy-superblock { margin: 1em 0; }
+.sy-doc li > p { margin: .35em 0; }
 .sy-doc ul.task-list { list-style: none; padding-left: 1.2em; }
 .sy-doc .tag { background: #eee; border-radius: 3px; padding: 0 4px; }
 .sy-doc .sy-toc { margin: 1em 0 1.5em; padding: 10px 16px; background: #fafafa; border: 1px solid #eee; }

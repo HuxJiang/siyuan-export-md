@@ -296,17 +296,22 @@ function renderListItem(li, list, ctx) {
     item.appendChild(doc.createTextNode(" "));
   }
 
+  // 列表项自己的第一段（纯行内）压进 <li>，后面的子段落/子列表/公式一律按块级元素输出，
+  // 否则「自己的话」和「子段落」会被粘成一整串文字
+  let seenBlock = false;
+
   Array.from(li.childNodes).forEach((child) => {
     if (child.nodeType === 1) {
       if (isChrome(child)) return;
       if (isBlockNode(child)) {
         const type = blockTypeOf(child, "");
-        if (type === "p") {
-          // 列表项里的段落压平成行内内容，避免 <li><p> 的额外间距
+        if (type === "p" && !seenBlock) {
           appendInlineChildren(child, item, ctx);
+          seenBlock = true;
           return;
         }
         appendHtml(item, renderElement(child, ctx));
+        seenBlock = true;
         return;
       }
     }
