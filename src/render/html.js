@@ -11,13 +11,21 @@ const { cleanTableHtml } = require("./exporters/table");
 const { extractLatex } = require("./exporters/math");
 const { logWarn } = require("../utils");
 
+/**
+ * 顶层 HTML 片段的统一收尾：按开关包 Hugo shortcode、加来源注释。
+ * 只处理 HTML 片段（以 "<" 开头）；Markdown（段落、列表、图片等）原样返回。
+ * 在 HTML 容器内部（ctx.inHtml）不再包裹，避免短代码嵌套。
+ */
 function wrapHtmlFragment(html, ctx, kind) {
-  if (!html) return "";
-  let out = html;
-  if (!ctx.inHtml && ctx.opts.site === "hugo" && ctx.opts.hugoRawHtmlShortcode) {
+  const body = String(html == null ? "" : html).trim();
+  if (!body) return "";
+  if (!body.startsWith("<")) return html;
+  const opts = ctx.opts || {};
+  let out = body;
+  if (!ctx.inHtml && opts.site === "hugo" && opts.hugoRawHtmlShortcode) {
     out = `{{< rawhtml >}}\n${out}\n{{< /rawhtml >}}`;
   }
-  if (!ctx.inHtml && ctx.opts.debugComment) {
+  if (!ctx.inHtml && opts.debugComment) {
     out = `<!-- siyuan:${kind} -->\n${out}`;
   }
   return `${out}\n\n`;
@@ -50,7 +58,7 @@ async function renderBlockHtml(meta, ctx) {
 }
 
 async function renderChildrenHtml(metas, ctx) {
-  const childCtx = { ...ctx, htmlOnly: true, inHtml: true, depth: ctx.depth + 1 };
+  const childCtx = { ...ctx, htmlOnly: true, inHtml: true };
   let out = "";
   for (const meta of metas) {
     if (!meta || normalizeType(meta.type) === "d") continue;

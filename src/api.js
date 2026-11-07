@@ -109,9 +109,7 @@ function normalizeType(type) {
   const raw = String(type || "").trim();
   if (!raw) return "";
   const lower = raw.toLowerCase();
-  if (TYPE_ALIAS[lower]) return TYPE_ALIAS[lower];
-  if (/^[a-z][a-z_]{0,12}$/.test(lower) && lower.length <= 12) return lower;
-  return lower;
+  return TYPE_ALIAS[lower] || lower;
 }
 
 async function getChildBlocks(parentId) {

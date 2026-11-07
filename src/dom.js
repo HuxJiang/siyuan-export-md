@@ -96,7 +96,7 @@ function convertDataHrefAnchors(root) {
 function toCleanHtml(el) {
   if (!el) return "";
   let clone = el.cloneNode(true);
-  DROP_ATTRS.forEach((name) => clone.removeAttribute(name));
+  // sanitizeElement 会先清理根节点属性，这里不必再删一遍
   clone = convertDataHrefAnchors(clone);
   sanitizeElement(clone);
   return clone.outerHTML;

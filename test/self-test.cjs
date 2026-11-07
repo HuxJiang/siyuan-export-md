@@ -183,7 +183,8 @@ check("暴露自测内部函数", !!exportsObj.__internals);
     b3: "$$\na_b = c\n$$",
     b4: "![图](assets/pic.png)",
     b5: "| a | b |\n| --- | --- |\n| 1 | 2 |",
-    b6: "[报告.pdf](assets/报告.pdf \"报告.pdf\")"
+    b6: "[报告.pdf](assets/报告.pdf \"报告.pdf\")",
+    b8: "![坏图](assets/broken.png)"
   };
 
   const sqlRows = (stmt) => {
@@ -217,6 +218,42 @@ check("暴露自测内部函数", !!exportsObj.__internals);
     }
     if (/FROM assets WHERE name = '报告.pdf'/.test(stmt)) {
       return [{ path: "assets/报告.pdf", box: "box1" }];
+    }
+    // 短代码 / 来源注释开关：只含一个查询嵌入块（HTML 片段，不依赖 DOMParser）
+    if (/FROM blocks WHERE id = 'doc2'/.test(stmt)) {
+      return [
+        {
+          id: "doc2",
+          content: "短代码文档",
+          name: "",
+          box: "box1",
+          created: "20240101120000",
+          updated: "20240101120000",
+          tag: "",
+          hpath: "/笔记本/短代码文档"
+        }
+      ];
+    }
+    if (/parent_id = 'doc2'/.test(stmt)) {
+      return [{ id: "q1", type: "query_embed", subtype: "", sort: 1 }];
+    }
+    // 资源缺失：图片读不到时只告警、不抛异常
+    if (/FROM blocks WHERE id = 'doc3'/.test(stmt)) {
+      return [
+        {
+          id: "doc3",
+          content: "缺图文档",
+          name: "",
+          box: "box1",
+          created: "20240101120000",
+          updated: "20240101120000",
+          tag: "",
+          hpath: "/笔记本/缺图文档"
+        }
+      ];
+    }
+    if (/parent_id = 'doc3'/.test(stmt)) {
+      return [{ id: "b8", type: "p", subtype: "", sort: 1 }];
     }
     return [];
   };
@@ -294,6 +331,46 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   check("附件链接被重写", /\[报告\.pdf\]\(\/siyuan\/测试文档\/asset-[a-z0-9]+\.pdf "报告\.pdf"\)/.test(content), content);
   check("资源相对路径已解析（图片可读）", result.assetCount === 2, String(result.assetCount));
   check("附件二进制已进包", Buffer.from(result.zip).includes(Buffer.from([37, 80, 68, 70])));
+
+  /* ---------------------------------------------------------------- *
+   * 3.1 HTML 片段开关 / 失败降级
+   * ---------------------------------------------------------------- */
+  section("rawhtml 短代码与来源注释");
+  const shortOpts = { ...opts, hugoRawHtmlShortcode: true };
+  const wrapped = await I.exportDocument("doc2", shortOpts, new I.AssetStore(), "笔记本");
+  check(
+    "顶层 HTML 片段被包一层 rawhtml",
+    (wrapped.content.match(/\{\{< rawhtml >\}\}/g) || []).length === 1 &&
+      wrapped.content.includes("siyuan-query-embed"),
+    wrapped.content
+  );
+  check("rawhtml 短代码不嵌套", !/\{\{< rawhtml >\}\}[\s\S]*\{\{< rawhtml >\}\}/.test(wrapped.content));
+
+  const plainDoc = await I.exportDocument("doc2", opts, new I.AssetStore(), "笔记本");
+  check("开关关闭时不出现短代码", !plainDoc.content.includes("rawhtml"), plainDoc.content);
+
+  const commented = await I.exportDocument("doc2", { ...opts, debugComment: true }, new I.AssetStore(), "笔记本");
+  check("来源注释带块类型", commented.content.includes("<!-- siyuan:query_embed -->"), commented.content);
+
+  const markdownOnly = await I.exportDocument("doc3", { ...opts, debugComment: true }, new I.AssetStore(), "笔记本");
+  check("Markdown 片段不加来源注释", !markdownOnly.content.includes("<!-- siyuan:"), markdownOnly.content);
+
+  section("失败降级不抛异常");
+  const brokenStore = new I.AssetStore();
+  const broken = await I.exportDocument("doc3", opts, brokenStore, "笔记本");
+  check("资源读不到时保留原相对路径", broken.content.includes("assets/broken.png"), broken.content);
+  check(
+    "资源读不到时记录到资源失败清单",
+    brokenStore.failures.some((w) => w.includes("资源未找到")),
+    JSON.stringify(brokenStore.failures)
+  );
+
+  const unit = I.wrapHtmlFragment('<div class="x">a</div>\n\n', { opts: { ...I.DEFAULT_OPTIONS, hugoRawHtmlShortcode: true }, inHtml: false }, "html");
+  check("wrapHtmlFragment 包裹 HTML", unit === "{{< rawhtml >}}\n<div class=\"x\">a</div>\n{{< /rawhtml >}}\n\n", unit);
+  const nested = I.wrapHtmlFragment('<div class="x">a</div>\n\n', { opts: { ...I.DEFAULT_OPTIONS, hugoRawHtmlShortcode: true }, inHtml: true }, "html");
+  check("容器内不再包裹", nested === '<div class="x">a</div>\n\n', nested);
+  const mdPassthrough = I.wrapHtmlFragment("## 标题\n\n", { opts: { ...I.DEFAULT_OPTIONS, hugoRawHtmlShortcode: true }, inHtml: false }, "h");
+  check("Markdown 原样返回", mdPassthrough === "## 标题\n\n", mdPassthrough);
 
   /* ---------------------------------------------------------------- *
    * 4. 表格 HTML / callout 分支（需要 DOMParser，缺失时跳过）

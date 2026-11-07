@@ -54,7 +54,8 @@ async function exportSite(docIds, opts, notebookName, onProgress) {
     }
   }
 
-  assets.getFiles().forEach((data, path) => files.push({ path, data }));
+  const assetFiles = assets.getFiles();
+  assetFiles.forEach((data, path) => files.push({ path, data }));
   assets.failures.forEach((f) => warnings.push(f));
 
   if (opts.site === "hugo" && opts.hugoRawHtmlShortcode) {
@@ -71,7 +72,7 @@ async function exportSite(docIds, opts, notebookName, onProgress) {
     `- 公式格式：${opts.mathFormat}`,
     `- 表格格式：${opts.tableFormat}`,
     `- 导出文档：${docCount} 篇`,
-    `- 导出文件：${files.length} 个（含资源 ${assets.getFiles().size} 个）`,
+    `- 导出文件：${files.length} 个（含资源 ${assetFiles.size} 个）`,
     `- 时间：${new Date().toLocaleString()}`,
     "",
     "## 告警",
@@ -88,7 +89,7 @@ async function exportSite(docIds, opts, notebookName, onProgress) {
     zip: buildZip(files),
     fileCount: files.length,
     docCount,
-    assetCount: assets.getFiles().size,
+    assetCount: assetFiles.size,
     warnings
   };
 }

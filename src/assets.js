@@ -5,7 +5,7 @@
 "use strict";
 
 const { sql, readWorkspaceFile } = require("./api");
-const { stripZeroWidth, replaceAllLiteral } = require("./utils");
+const { stripZeroWidth, replaceAllLiteral, escapeSql } = require("./utils");
 const { asciiFileName, docPaths } = require("./naming");
 const { splitFencedCode } = require("./markdown-text");
 
@@ -29,17 +29,13 @@ class AssetStore {
   async lookupAssetPath(name, box) {
     const key = `${box}/${name}`;
     if (this.rows.has(key)) return this.rows.get(key);
-    let path = "";
-    try {
-      const rows = await sql(
-        `SELECT path FROM assets WHERE name = '${escapeSql(name)}'` +
-          (box ? ` AND box = '${escapeSql(box)}'` : "") +
-          ` LIMIT 1`
-      );
-      path = (rows[0] && rows[0].path) || "";
-    } catch (e) {
-      path = "";
-    }
+    // sql() 内部已把内核错误降级成 []，这里不需要再包一层 try/catch
+    const rows = await sql(
+      `SELECT path FROM assets WHERE name = '${escapeSql(name)}'` +
+        (box ? ` AND box = '${escapeSql(box)}'` : "") +
+        ` LIMIT 1`
+    );
+    const path = (rows[0] && rows[0].path) || "";
     this.rows.set(key, path);
     return path;
   }

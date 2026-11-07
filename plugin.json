@@ -1,8 +1,8 @@
 {
   "name": "siyuan-export-md",
-  "author": "Doubao",
+  "author": "Hux",
   "url": "https://github.com/your-name/siyuan-export-md",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "minAppVersion": "3.0.0",
   "backends": ["windows", "linux", "darwin", "docker"],
   "frontends": ["desktop", "desktop-window", "browser-desktop", "mobile", "browser-mobile"],

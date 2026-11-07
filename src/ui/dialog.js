@@ -4,6 +4,7 @@
  */
 "use strict";
 
+const { LOG_PREFIX } = require("../config");
 const { listNotebooks } = require("../api");
 const { escapeHtml } = require("../utils");
 const { docsOfNotebook } = require("../document");

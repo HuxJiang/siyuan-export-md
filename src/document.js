@@ -101,7 +101,6 @@ async function exportDocument(docId, opts, assets, notebookName) {
   const ctx = {
     opts,
     doc,
-    depth: 0,
     htmlOnly: false,
     inHtml: false,
     assets,

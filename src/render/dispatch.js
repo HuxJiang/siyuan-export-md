@@ -6,7 +6,7 @@
 
 const { normalizeType } = require("../api");
 const { logWarn } = require("../utils");
-const { renderBlockHtml } = require("./html");
+const { renderBlockHtml, wrapHtmlFragment } = require("./html");
 const { exportHeading, exportParagraph, exportList, exportQuote, exportCode } = require("./exporters/text");
 const { exportMath } = require("./exporters/math");
 const { exportTable } = require("./exporters/table");
@@ -53,12 +53,13 @@ async function renderBlock(meta, ctx) {
   if (ctx.htmlOnly) return renderBlockHtml(meta, ctx);
   const exporter = REGISTRY[type] || exportUnknown;
   try {
-    return (await exporter(meta, ctx)) || "";
+    const out = (await exporter(meta, ctx)) || "";
+    return wrapHtmlFragment(out, ctx, type);
   } catch (e) {
     ctx.warnings.push(`块导出失败：${type} ${meta.id}`);
     logWarn("块导出失败", meta, e);
     try {
-      return await exportUnknown(meta, ctx);
+      return wrapHtmlFragment(await exportUnknown(meta, ctx), ctx, type);
     } catch (inner) {
       return "";
     }

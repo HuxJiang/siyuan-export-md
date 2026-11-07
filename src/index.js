@@ -7,18 +7,17 @@
 const { DEFAULT_OPTIONS, LOG_PREFIX } = require("./config");
 const { currentDocId, openDialog, doExport, downloadBytes } = require("./ui/dialog");
 const { cleanKramdown } = require("./kramdown");
-const { normalizeLatex, visibleLatexText, mathInline, mathBlock, applyMathFormat } = require("./math");
-const { normalizeMarkdownWhitespace, splitFencedCode, splitInlineCode } = require("./markdown-text");
+const { applyMathFormat } = require("./math");
+const { normalizeMarkdownWhitespace } = require("./markdown-text");
 const { slugify, asciiFileName, docPaths } = require("./naming");
-const { buildFrontMatter, renderToc, exportDocument } = require("./document");
-const { buildZip } = require("./zip");
+const { exportDocument } = require("./document");
 const { normalizeType } = require("./api");
 const { AssetStore } = require("./assets");
 const { exportSite } = require("./site");
 const { exportTable } = require("./render/exporters/table");
 const { exportCallout } = require("./render/exporters/callout");
 const { exportImage } = require("./render/exporters/image");
-const { renderBlockHtml, renderChildrenHtml } = require("./render/html");
+const { renderBlockHtml, renderChildrenHtml, wrapHtmlFragment } = require("./render/html");
 const { Plugin } = require("siyuan");
 
 class SiYuanMarkdownExporter extends Plugin {
@@ -83,24 +82,15 @@ class SiYuanMarkdownExporter extends Plugin {
 
 module.exports = SiYuanMarkdownExporter;
 module.exports.default = SiYuanMarkdownExporter;
-/** 自测用：暴露纯函数，生产环境无副作用。 */
+/** 自测用：暴露纯函数，生产环境无副作用（只列 test/ 里实际用到的符号）。 */
 module.exports.__internals = {
   DEFAULT_OPTIONS,
   cleanKramdown,
-  normalizeLatex,
-  visibleLatexText,
-  mathInline,
-  mathBlock,
   applyMathFormat,
   normalizeMarkdownWhitespace,
-  splitFencedCode,
-  splitInlineCode,
   slugify,
   asciiFileName,
   docPaths,
-  buildFrontMatter,
-  renderToc,
-  buildZip,
   normalizeType,
   AssetStore,
   exportSite,
@@ -110,4 +100,5 @@ module.exports.__internals = {
   exportImage,
   renderBlockHtml,
   renderChildrenHtml,
+  wrapHtmlFragment,
 };
