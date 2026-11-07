@@ -18,7 +18,8 @@ const DEFAULT_OPTIONS = {
   hugoLayout: "file", // file | bundle
   hugoContentDir: "notes",
   frontmatter: "script", // script | full
-  debugComment: false
+  outputMode: "zip", // zip（浏览器下载压缩包）| folder（直接写入下面这个目录）
+  outputDir: "" // folder 模式的目标目录，绝对路径；空则用 ~/siyuan-export
 };
 
 module.exports = {

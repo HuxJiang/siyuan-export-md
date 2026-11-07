@@ -7,8 +7,7 @@
 "use strict";
 
 const { DEFAULT_OPTIONS, LOG_PREFIX } = require("./config");
-const { currentDocId, openDialog, doExport, downloadBytes } = require("./ui/dialog");
-const { slugify, asciiFileName, docPaths } = require("./naming");
+const { currentDocId, idFromProtyle, isDocId, openDialog, doExport, downloadBytes } = require("./ui/dialog");const { slugify, asciiFileName, docPaths } = require("./naming");
 const { normalizeType } = require("./api");
 const { AssetStore } = require("./assets");
 const { exportDocument } = require("./document");
@@ -17,6 +16,7 @@ const { renderBlock, renderBlockSafe, renderBlockHtml, renderChildrenHtml } = re
 const { renderElement } = require("./render/block");
 const { normalizeLatex, mathInline, mathBlock } = require("./math");
 const { compactHtml } = require("./utils");
+const { writeFilesToFolder } = require("./output");
 const { TOPBAR_ICON } = require("./ui/topbar-icon");
 const { Plugin } = require("siyuan");
 
@@ -26,13 +26,18 @@ class SiYuanHtmlExporter extends Plugin {
     super(options);
     this.opts = { ...DEFAULT_OPTIONS };
     this.dialog = null;
+    /** 最后激活的编辑器；每次打开面板时用它取「当前文档」 */
+    this.activeProtyle = null;
   }
 
   async onload() {
     console.log(LOG_PREFIX, "loaded");
+    this.trackActiveProtyle();
     try {
       const saved = await this.loadData("options");
       if (saved) this.opts = { ...DEFAULT_OPTIONS, ...saved };
+      /* 旧版本存过 debugComment（来源注释开关，已删除），清掉免得残留 */
+      if (this.opts.debugComment !== undefined) delete this.opts.debugComment;
     } catch (e) {
       /* 首次加载没有配置 */
     }
@@ -62,10 +67,42 @@ class SiYuanHtmlExporter extends Plugin {
   onunload() {
     if (this.dialog) this.dialog.destroy();
     this.dialog = null;
+    this.activeProtyle = null;
+  }
+
+  /**
+   * 顶栏按钮不经过命令上下文，拿不到 protyle，所以订阅事件总线记录最后激活的编辑器：
+   * loaded-protyle-static（打开/切到某篇文档时加载）、loaded-protyle-dynamic（同篇文档懒加载）、
+   * switch-protyle（编辑器内切换文档）、click-editorcontent（在哪个编辑区里点过）。
+   * destroy-protyle 关掉当前那篇时清空，避免拿着已经销毁的 protyle 取 id。
+   */
+  trackActiveProtyle() {
+    const bus = this.eventBus;
+    if (!bus || typeof bus.on !== "function") return;
+    const remember = (event) => {
+      const protyle = event && event.detail && event.detail.protyle;
+      if (protyle) this.activeProtyle = protyle;
+    };
+    const forget = (event) => {
+      const protyle = event && event.detail && event.detail.protyle;
+      if (protyle && protyle === this.activeProtyle) this.activeProtyle = null;
+    };
+    ["loaded-protyle-static", "loaded-protyle-dynamic", "switch-protyle", "click-editorcontent"].forEach((name) => {
+      try {
+        bus.on(name, remember);
+      } catch (e) {
+        console.warn(LOG_PREFIX, "订阅事件失败", name, e);
+      }
+    });
+    try {
+      bus.on("destroy-protyle", forget);
+    } catch (e) {
+      console.warn(LOG_PREFIX, "订阅事件失败", "destroy-protyle", e);
+    }
   }
 
   currentDocId(protyle) {
-    return currentDocId(protyle);
+    return currentDocId(protyle, this.activeProtyle);
   }
 
   openDialog(protyle) {
@@ -102,4 +139,8 @@ module.exports.__internals = {
   mathInline,
   mathBlock,
   compactHtml,
+  writeFilesToFolder,
+  currentDocId,
+  idFromProtyle,
+  isDocId,
 };

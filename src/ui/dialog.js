@@ -11,17 +11,88 @@ const { listNotebooks } = require("../api");
 const { escapeHtml } = require("../utils");
 const { docsOfNotebook } = require("../document");
 const { exportSite } = require("../site");
+const { isDesktopWritable, defaultOutputDir, pickDirectory, writeFilesToFolder } = require("../output");
 const { Dialog, showMessage } = require("siyuan");
 
-function currentDocId(protyle) {
-  if (protyle && protyle.block && protyle.block.rootID) return protyle.block.rootID;
-  if (protyle && protyle.background && protyle.background.id) return protyle.background.id;
-  const titleEl = document.querySelector(".protyle-title[data-node-id]");
-  if (titleEl) {
-    const id = titleEl.getAttribute("data-node-id") || "";
-    if (id) return id;
+const DOC_ID_RE = /^\d{14}-[a-z0-9]{7}$/;
+
+function isDocId(id) {
+  return DOC_ID_RE.test(String(id == null ? "" : id).trim());
+}
+
+/** 从 protyle 上取文档 id：缩进 / 聚焦到子块时 block.id 是子块，rootID 才是文档 */
+function idFromProtyle(protyle) {
+  if (!protyle) return "";
+  const block = protyle.block || {};
+  const candidates = [block.rootID, block.id, protyle.background && protyle.background.id];
+  for (const id of candidates) {
+    if (isDocId(id)) return id;
   }
   return "";
+}
+
+function visibleEnough(el) {
+  if (!el) return false;
+  if (typeof el.getClientRects === "function" && el.getClientRects().length > 0) return true;
+  const view = el.ownerDocument && el.ownerDocument.defaultView;
+  const styleOf =
+    view && typeof view.getComputedStyle === "function"
+      ? view.getComputedStyle.bind(view)
+      : typeof getComputedStyle === "function"
+      ? getComputedStyle
+      : null;
+  if (styleOf) {
+    let node = el;
+    while (node && node.nodeType === 1) {
+      if (node.style && node.style.display === "none") return false;
+      const style = styleOf(node);
+      if (style && (style.display === "none" || style.visibility === "hidden")) return false;
+      node = node.parentElement;
+    }
+    return true; // 没有布局信息（如测试环境）时，display 没藏就算可见
+  }
+  return el.offsetParent !== null;
+}
+
+/**
+ * 当前文档 id：protyle 上下文优先，其次是插件跟踪到的最后激活编辑器，
+ * 最后才退回 DOM 查询（只用来兜底：打开插件前就已经在编辑的文档）。
+ * 多个标签页时 DOM 里会有多个 .protyle-title，必须按可见性挑，不能直接取第一个。
+ */
+function currentDocId(protyle, activeProtyle) {
+  const fromArg = idFromProtyle(protyle);
+  if (fromArg) return fromArg;
+
+  const tracked = idFromProtyle(activeProtyle);
+  if (tracked) {
+    // 跟踪到的是后台标签页的编辑器时（不可见），交给下面的可见性兜底
+    const trackedEl = activeProtyle && activeProtyle.element;
+    if (!trackedEl || visibleEnough(trackedEl)) return tracked;
+  }
+
+  if (typeof document === "undefined") return tracked || "";
+  const titles = Array.prototype.slice.call(document.querySelectorAll(".protyle-title[data-node-id]"));
+  if (!titles.length) {
+    const editor = document.querySelector(".protyle-wysiwyg[data-node-id]");
+    const id = editor && editor.getAttribute("data-node-id");
+    return isDocId(id) ? id : tracked || "";
+  }
+
+  // 焦点还在编辑区时（没用鼠标点顶栏的情况），直接取焦点所在编辑器
+  const focused = document.activeElement && document.activeElement.closest
+    ? document.activeElement.closest(".protyle")
+    : null;
+  if (focused) {
+    const inside = focused.querySelector(".protyle-title[data-node-id]");
+    const id = inside && inside.getAttribute("data-node-id");
+    if (isDocId(id)) return id;
+  }
+
+  const visible = titles.filter((el) => visibleEnough(el.closest(".protyle") || el));
+  const pool = visible.length ? visible : titles;
+  const title = pool[0];
+  const id = title && title.getAttribute("data-node-id");
+  return isDocId(id) ? id : tracked || "";
 }
 
 function openDialog(plugin, protyle) {
@@ -30,7 +101,7 @@ function openDialog(plugin, protyle) {
     self.dialog.destroy();
     self.dialog = null;
   }
-  const docId = self.currentDocId(protyle);
+  const docId = self.currentDocId(protyle, self.activeProtyle);
   const content = `
 <div class="b3-dialog__content" style="padding: 8px 24px 0;">
   <div style="display:flex;flex-direction:column;gap:12px;font-size:13px;">
@@ -54,6 +125,19 @@ function openDialog(plugin, protyle) {
       <select id="syNotebook" class="b3-select" style="width:230px;display:none;"></select>
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
+      <label style="width:82px;color:var(--b3-theme-on-surface-variant);">导出方式</label>
+      <select id="syOutputMode" class="b3-select" style="width:170px;">
+        <option value="zip">下载压缩包（.zip）</option>
+        <option value="folder">直接写入文件夹</option>
+      </select>
+      <span id="syOutputHint" style="color:var(--b3-theme-on-surface-variant);font-size:12px;"></span>
+    </div>
+    <div id="syOutDirRow" style="display:none;align-items:center;gap:8px;">
+      <label style="width:82px;color:var(--b3-theme-on-surface-variant);">导出目录</label>
+      <input id="syOutDir" class="b3-text-field fn__flex-1" placeholder="绝对路径，例如 C:\\Users\\你\\Documents\\siyuan-export" />
+      <button class="b3-button b3-button--outline" id="syPickDir" style="flex:none;white-space:nowrap;">选择…</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
       <label style="width:82px;color:var(--b3-theme-on-surface-variant);">标题语法</label>
       <select id="syHeadingStyle" class="b3-select" style="width:170px;">
         <option value="markdown">Markdown（## 标题）</option>
@@ -63,7 +147,7 @@ function openDialog(plugin, protyle) {
     </div>
     <div id="syDocRow" style="display:flex;align-items:center;gap:8px;">
       <label style="width:82px;color:var(--b3-theme-on-surface-variant);">文档 ID</label>
-      <input id="syDocId" class="b3-text-field fn__flex-1" placeholder="留空则自动取当前打开的文档" value="${escapeHtml(docId)}" />
+      <input id="syDocId" class="b3-text-field fn__flex-1" placeholder="留空则导出当前打开的文档" value="${escapeHtml(docId)}" />
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;padding-left:90px;">
       <label style="display:flex;align-items:center;gap:6px;">
@@ -77,10 +161,6 @@ function openDialog(plugin, protyle) {
       <label style="display:flex;align-items:center;gap:6px;">
         <input type="checkbox" id="sySbWidth" class="b3-switch fn__flex-center" />
         <span>保留超级块栏宽（只取思源里的分栏宽度比例）</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="syDebug" class="b3-switch fn__flex-center" />
-        <span>在每个块前加来源注释（便于排查）</span>
       </label>
     </div>
     <div style="color:var(--b3-theme-on-surface-variant);font-size:12px;line-height:1.7;">
@@ -112,11 +192,15 @@ function openDialog(plugin, protyle) {
   const notebookEl = body.querySelector("#syNotebook");
   const docRowEl = body.querySelector("#syDocRow");
   const docIdEl = body.querySelector("#syDocId");
+  const outputModeEl = body.querySelector("#syOutputMode");
+  const outputHintEl = body.querySelector("#syOutputHint");
+  const outDirRowEl = body.querySelector("#syOutDirRow");
+  const outDirEl = body.querySelector("#syOutDir");
+  const pickDirEl = body.querySelector("#syPickDir");
   const headingStyleEl = body.querySelector("#syHeadingStyle");
   const assetsEl = body.querySelector("#syAssets");
   const demoteEl = body.querySelector("#syDemote");
   const sbWidthEl = body.querySelector("#sySbWidth");
-  const debugEl = body.querySelector("#syDebug");
   const statusEl = body.querySelector("#syStatus");
   const runEl = body.querySelector("#syRun");
   const cancelEl = body.querySelector("#syCancel");
@@ -127,8 +211,27 @@ function openDialog(plugin, protyle) {
   demoteEl.checked = !!self.opts.headingDemote;
   headingStyleEl.value = self.opts.headingStyle === "html" ? "html" : "markdown";
   sbWidthEl.checked = self.opts.superblockWidth !== false;
-  debugEl.checked = !!self.opts.debugComment;
   hugoLayoutEl.value = self.opts.hugoLayout;
+  outputModeEl.value = self.opts.outputMode === "folder" ? "folder" : "zip";
+  outDirEl.value = self.opts.outputDir || "";
+
+  const canWriteDisk = isDesktopWritable();
+  const syncOutputMode = () => {
+    const isFolder = outputModeEl.value === "folder";
+    outDirRowEl.style.display = isFolder ? "flex" : "none";
+    if (!isFolder) {
+      outputHintEl.textContent = "";
+      return;
+    }
+    if (!canWriteDisk) {
+      outputHintEl.textContent = "当前环境不能直接写盘，请改用压缩包";
+      outputHintEl.style.color = "var(--b3-theme-error)";
+      return;
+    }
+    outputHintEl.style.color = "var(--b3-theme-on-surface-variant)";
+    outputHintEl.textContent = "按相对目录写盘，同名文件会被覆盖";
+    if (!outDirEl.value) outDirEl.placeholder = "留空则用 " + (defaultOutputDir() || "~/siyuan-export");
+  };
 
   const syncSite = () => {
     hugoLayoutEl.style.display = siteEl.value === "hugo" ? "" : "none";
@@ -140,8 +243,27 @@ function openDialog(plugin, protyle) {
   };
   syncSite();
   syncScope();
+  syncOutputMode();
   siteEl.addEventListener("change", syncSite);
   scopeEl.addEventListener("change", syncScope);
+  outputModeEl.addEventListener("change", syncOutputMode);
+
+  pickDirEl.addEventListener("click", async () => {
+    if (!canWriteDisk) {
+      showMessage("当前环境不能直接写盘，请改用「下载压缩包」", 4000, "error");
+      return;
+    }
+    pickDirEl.disabled = true;
+    try {
+      const picked = await pickDirectory(outDirEl.value);
+      if (picked) outDirEl.value = picked;
+      else if (!outDirEl.value) setStatus("没有选择目录，可手动填写绝对路径");
+    } catch (e) {
+      setStatus("选择目录失败：" + ((e && e.message) || e));
+    } finally {
+      pickDirEl.disabled = false;
+    }
+  });
 
   listNotebooks().then((notebooks) => {
     notebookEl.innerHTML = notebooks
@@ -166,13 +288,16 @@ function openDialog(plugin, protyle) {
       hugoLayout: hugoLayoutEl.value,
       hugoContentDir: self.opts.hugoContentDir,
       frontmatter: self.opts.frontmatter,
-      debugComment: debugEl.checked
+      outputMode: outputModeEl.value === "folder" ? "folder" : "zip",
+      outputDir: outDirEl.value.trim()
     };
     self.opts = { ...self.opts, ...opts };
     void self.saveData("options", self.opts);
     runEl.disabled = true;
     try {
-      await self.doExport(opts, docIdEl.value.trim(), notebookEl, setStatus);
+      // 点「开始导出」时再取一次，面板打开后又切了文档也不会导错
+      const docIdInput = docIdEl.value.trim() || self.currentDocId(null, self.activeProtyle);
+      await self.doExport(opts, docIdInput, notebookEl, setStatus);
       dialog.destroy();
     } catch (e) {
       console.error(LOG_PREFIX, e);
@@ -215,13 +340,34 @@ async function doExport(plugin, opts, docIdInput, notebookEl, setStatus) {
     setStatus(`(${done}/${total}) ${title}`);
   });
 
+  const warnText = result.warnings.length
+    ? `；${result.warnings.length} 条告警见 ${
+        opts.outputMode === "folder" ? "导出目录" : "压缩包"
+      }内 SIYUAN-EXPORT-REPORT.html`
+    : "";
+
+  if (opts.outputMode === "folder") {
+    const target = opts.outputDir || defaultOutputDir();
+    if (!target) {
+      setStatus("请先填写导出目录（绝对路径），或点「选择…」挑一个文件夹");
+      return;
+    }
+    setStatus(`正在写入 ${target} …`);
+    const wrote = writeFilesToFolder(target, result.files, (done, total, path) => {
+      setStatus(`写入 (${done}/${total}) ${path}`);
+    });
+    const skippedText = wrote.skipped.length ? `；${wrote.skipped.length} 个路径越界已跳过` : "";
+    setStatus(
+      `完成：${result.docCount} 篇文档、${result.assetCount} 个资源，已写入 ${wrote.written} 个文件到 ${wrote.dir}${warnText}${skippedText}`
+    );
+    showMessage(`导出完成：${result.docCount} 篇文档，已写入 ${wrote.written} 个文件${warnText}`, 6000);
+    return;
+  }
+
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
   const filename = `siyuan-${opts.site}-${stamp}.zip`;
   self.download(result.zip, filename);
 
-  const warnText = result.warnings.length
-    ? `；${result.warnings.length} 条告警见压缩包内 SIYUAN-EXPORT-REPORT.html`
-    : "";
   setStatus(`完成：${result.docCount} 篇文档、${result.assetCount} 个资源、共 ${result.fileCount} 个文件${warnText}`);
   showMessage(`导出完成：${result.docCount} 篇文档${warnText}`, 6000);
 }
@@ -239,6 +385,8 @@ function downloadBytes(bytes, filename) {
 }
 
 module.exports = {
+  isDocId,
+  idFromProtyle,
   currentDocId,
   openDialog,
   doExport,

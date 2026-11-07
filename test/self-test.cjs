@@ -64,6 +64,17 @@ class FakePlugin {
     this.__options = options;
     this.app = options && options.app;
     this.calls = [];
+    /* 事件总线桩：记录订阅，测试里手动 emit */
+    const handlers = Object.create(null);
+    this.eventBus = {
+      handlers,
+      on(name, fn) {
+        (handlers[name] = handlers[name] || []).push(fn);
+      },
+      emit(name, detail) {
+        (handlers[name] || []).forEach((fn) => fn({ detail }));
+      }
+    };
   }
   async loadData() {
     return null;
@@ -394,17 +405,26 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   check("zip 内含 HTML 报告", zipText.includes("SIYUAN-EXPORT-REPORT.html"));
   check("资源二进制已进包", Buffer.from(result.zip).includes(Buffer.from([137, 80, 78, 71])));
   check("资源计数", result.assetCount === 2, String(result.assetCount));
+  /* 直接写入文件夹走的是 files 列表，不经 zip */
+  check("导出结果暴露 files 列表", Array.isArray(result.files) && result.files.length === result.fileCount, String(result.fileCount));
+  check(
+    "files 每项带相对路径与字节",
+    result.files.every((f) => typeof f.path === "string" && f.data && typeof f.data.length === "number")
+  );
+  check(
+    "files 路径与 zip 内容一致",
+    result.files.some((f) => f.path === "content/notes/测试文档.md") &&
+      result.files.some((f) => f.path === "static/siyuan/测试文档/pic.png")
+  );
 
   /* ---------------------------------------------------------------- *
-   * 3.1 来源注释 / 失败降级
+   * 3.1 失败降级
    * ---------------------------------------------------------------- */
-  section("来源注释与降级");
-  const commented = await I.exportDocument("doc2", { ...opts, debugComment: true }, new I.AssetStore(), "笔记本");
-  check("来源注释带块类型", commented.content.includes("<!-- siyuan:query_embed -->"), commented.content);
-  check("查询嵌入占位是 HTML", commented.content.includes('<div class="sy-placeholder"'));
-
+  section("失败降级");
   const plainDoc = await I.exportDocument("doc2", opts, new I.AssetStore(), "笔记本");
-  check("开关关闭时不出现注释", !plainDoc.content.includes("<!-- siyuan:"), plainDoc.content);
+  check("查询嵌入占位是 HTML", plainDoc.content.includes('<div class="sy-placeholder"'));
+  check("正文不带来源注释（块 id 已挂在元素上）", !plainDoc.content.includes("<!-- siyuan:"), plainDoc.content);
+  check("不再有隐藏的调试开关", !("debugComment" in I.DEFAULT_OPTIONS), JSON.stringify(I.DEFAULT_OPTIONS));
 
   const brokenStore = new I.AssetStore();
   const broken = await I.exportDocument("doc3", opts, brokenStore, "笔记本");
@@ -423,6 +443,49 @@ check("暴露自测内部函数", !!exportsObj.__internals);
   const ctx = { opts: { ...I.DEFAULT_OPTIONS }, warnings: [], headings: [], headingIds: new Map(), inHtml: true };
   const html = I.renderElement(el, ctx);
   check("行内 em 保留语义", html === "<p>A<em>B</em><span class=\"tag\">#C#</span></p>", html);
+
+  section("当前文档 id");
+  check(
+    "订阅了编辑器事件",
+    ["loaded-protyle-static", "switch-protyle", "click-editorcontent", "destroy-protyle"].every(
+      (name) => (plugin.eventBus.handlers[name] || []).length === 1
+    ),
+    Object.keys(plugin.eventBus.handlers).join(",")
+  );
+  plugin.eventBus.emit("switch-protyle", { protyle: { block: { rootID: "20240101120000-aaaaaaa" } } });
+  check("切换到新文档后取新 id", plugin.currentDocId() === "20240101120000-aaaaaaa", plugin.currentDocId());
+  plugin.eventBus.emit("loaded-protyle-static", { protyle: { block: { rootID: "20240101120100-bbbbbbb" } } });
+  check("加载事件也更新", plugin.currentDocId() === "20240101120100-bbbbbbb", plugin.currentDocId());
+  check(
+    "命令上下文传入的 protyle 优先",
+    plugin.currentDocId({ block: { rootID: "20240101120200-ccccccc" } }) === "20240101120200-ccccccc"
+  );
+  check(
+    "缩进到子块时仍取文档 rootID",
+    I.idFromProtyle({ block: { id: "20240101120300-ddddddd", rootID: "20240101120400-eeeeeee" } }) ===
+      "20240101120400-eeeeeee"
+  );
+  plugin.eventBus.emit("destroy-protyle", { protyle: plugin.activeProtyle });
+  check("关闭当前文档后清空跟踪", plugin.activeProtyle === null);
+  check("没有 protyle 时不让非法 id 通过", !I.currentDocId({ block: { rootID: "not-a-doc" } }, null));
+  plugin.eventBus.emit("switch-protyle", { protyle: { block: { rootID: "20240101120500-fffffff" } } });
+
+  /* 多个标签页：DOM 里有两个标题，隐藏的那个不是当前文档 */
+  const savedBody = document.body.innerHTML;
+  document.body.innerHTML = [
+    '<div class="protyle" style="display:none"><div class="protyle-title" data-node-id="20240101120600-ggggggg"></div></div>',
+    '<div class="protyle"><div class="protyle-title" data-node-id="20240101120700-hhhhhhh"></div></div>'
+  ].join("");
+  check("DOM 兜底取可见的那篇", I.currentDocId(null, null) === "20240101120700-hhhhhhh", I.currentDocId(null, null));
+  const hiddenProtyleEl = document.createElement("div");
+  hiddenProtyleEl.style.display = "none";
+  check(
+    "跟踪到后台标签页时按可见文档兜底",
+    I.currentDocId(null, { block: { rootID: "20240101120800-iiiiiii" }, element: hiddenProtyleEl }) ===
+      "20240101120700-hhhhhhh",
+    I.currentDocId(null, { block: { rootID: "20240101120800-iiiiiii" }, element: hiddenProtyleEl })
+  );
+  document.body.innerHTML = savedBody;
 
   console.log(`\n通过 ${passed}，失败 ${failed}`);
   process.exit(failed ? 1 : 0);

@@ -1,6 +1,6 @@
 # 导出 Hexo/Hugo（HTML 正文，标题可选 Markdown）
 
-把思源文档导出成**能直接被 Hugo / Hexo 构建**的压缩包。产物仍是 `.md` 内容文件（Front Matter 保持不变），正文是 HTML，**标题默认用 Markdown 语法**：
+把思源文档导出成**能直接被 Hugo / Hexo 构建**的内容文件（压缩包或直接写进本地文件夹）。产物仍是 `.md` 内容文件（Front Matter 保持不变），正文是 HTML，**标题默认用 Markdown 语法**：
 
 ```markdown
 <div class="sy-doc">
@@ -37,7 +37,7 @@
 
 ## 一、安装
 
-源码在 `src/`（按功能拆分：`api.js`、`assets.js`、`dom.js`、`math.js`、`document.js`、`site.js`、`zip.js`、`render/`、`ui/dialog.js`）。根目录的 `index.js` 是一个**运行时加载器**：思源只把 `plugins/<name>/index.js` 交给 `window.eval` 执行，注入的 `require` 只认 `"siyuan"`，所以它用同步 XHR 从 `/plugins/<name>/src/…` 把模块源码取回来，再用一个极小的 CJS 注册表按 `require` 图逐个求值。
+源码在 `src/`（按功能拆分：`api.js`、`assets.js`、`dom.js`、`math.js`、`document.js`、`site.js`、`zip.js`、`output.js`、`render/`、`ui/dialog.js`）。根目录的 `index.js` 是一个**运行时加载器**：思源只把 `plugins/<name>/index.js` 交给 `window.eval` 执行，注入的 `require` 只认 `"siyuan"`，所以它用同步 XHR 从 `/plugins/<name>/src/…` 把模块源码取回来，再用一个极小的 CJS 注册表按 `require` 图逐个求值。
 
 因此：**不需要构建**，`src/` 必须跟 `index.js` 一起发布（少一个文件插件就起不来，控制台会给出具体是哪个 URL 读不到）。
 
@@ -56,14 +56,17 @@
 | 站点类型 | Hugo | `Hugo` 或 `Hexo`（只影响 Front Matter 与目录结构） |
 | Hugo 布局 | 单文件 | 单文件 = `content/<目录>/<slug>.md` + `static/siyuan/<slug>/`；page bundle = `content/posts/<slug>/index.md` + 同目录资源 |
 | 导出范围 | 当前文档 | 当前文档 / 整个笔记本 |
-| 文档 ID | 自动填入 | 留空则取当前打开的文档 |
+| 导出方式 | 下载压缩包 | `下载压缩包（.zip）` / `直接写入文件夹`；后者不打包，按相对路径写进「导出目录」 |
+| 导出目录 | `~/siyuan-export` | 仅「直接写入文件夹」时出现，绝对路径，可点「选择…」调用系统文件夹选择框；开头的 `~` 会展开成用户主目录 |
+| 文档 ID | 自动填入 | 每次打开面板都重新取当前激活的编辑器（订阅 `loaded-protyle-static` / `switch-protyle` / `click-editorcontent` 跟踪，多标签页再按可见性兜底）；也可以手动粘贴别的文档 id |
 | 打包附件 | 开 | 图片等资源一起进 zip，并重写引用路径 |
 | 标题语法 | Markdown | `Markdown（## 标题）` / `HTML（<h2>标题</h2>）`；只影响标题行，其余正文始终是 HTML |
 | 标题降一级 | 开 | 关掉则按思源原级别输出（原 h1 仍是 h1） |
 | 保留超级块栏宽 | 开 | 横向分栏按思源里拖出的宽度百分比折算成 `flex` 比例；关掉则等宽均分 |
-| 来源注释 | 脱 | 每个块前加 `<!-- siyuan:类型 -->`，排查用 |
 
-导出完成后浏览器下载一个 zip。
+「下载压缩包」模式导出完成后浏览器下载一个 zip；「直接写入文件夹」模式把同样的相对目录结构原地写到目标文件夹，同名文件直接覆盖，不产生 zip。直接写盘依赖思源桌面版的本地文件通道（`window.require("fs")`），移动端 / 纯浏览器会提示改用压缩包。
+
+选好「导出目录」后，如果它正好是你的 Hugo / Hexo 站点根目录，导出结果就直接落在 `content/`、`source/` 里，不用再解压搬运。
 
 ### Hugo 单文件（默认）
 
@@ -86,6 +89,8 @@ content/posts/<slug>/<ascii-文件名>.png
 source/_posts/<slug>.md
 source/_posts/<slug>/<ascii-文件名>.png
 ```
+
+「直接写入文件夹」模式不产生 zip，上面这些相对路径会原样落在「导出目录」下（根目录还会多一个 `SIYUAN-EXPORT-REPORT.html`）。
 
 ## 三、元素映射表
 
@@ -113,7 +118,7 @@ source/_posts/<slug>/<ascii-文件名>.png
 | 目录 | `toc` | `<nav class="sy-toc">` + 嵌套 `<ul>` 锚点 | 文档末尾统一替换占位 |
 | 其它/未知 | `*` | 清洗后的 HTML（`<div class="sy-block">`） | 万能兜底 |
 
-每次导出都会在 zip 根目录写 `SIYUAN-EXPORT-REPORT.html`：文档数、资源数、每条「退化为 HTML / 资源拷贝失败 / DOM 缺失」的告警，以及站点侧配置清单。
+每次导出都会在产物根目录写 `SIYUAN-EXPORT-REPORT.html`（zip 根目录或「导出目录」）：文档数、资源数、每条「退化为 HTML / 资源拷贝失败 / DOM 缺失」的告警，以及站点侧配置清单。
 
 ## 四、站点侧需要配的
 
@@ -216,4 +221,5 @@ npm i jsdom                 # 两个自测都依赖它（package.json 已声明�
 - 挂件引用的 `/widgets/…`、`/plugins/…`、`/api/…` 属运行态路径，不拷进包（拷了在静态站也跑不起来）；
 - 块引用 `((id "文字"))` 导出为锚文字纯文本，不生成跨文档锚点；
 - 正文是 HTML（标题默认用 Markdown），站点的 Markdown 渲染必须允许内联 HTML（Hugo 需 `goldmark unsafe`）；
-- 同一文档导出两次会覆盖同名文件（zip 是整体产物，不做增量）。
+- 同一文档导出两次会覆盖同名文件（不做增量，zip 与直接写盘都一样）；
+- 「直接写入文件夹」只在思源桌面版可用（依赖 `window.require("fs")`）；移动端或纯浏览器环境请用压缩包。

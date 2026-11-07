@@ -99,13 +99,23 @@ async function exportSite(docIds, opts, notebookName, onProgress) {
   });
   files.push({ path: "SIYUAN-EXPORT-REPORT.html", data: new TextEncoder().encode(report) });
 
-  return {
-    zip: buildZip(files),
+  // zip 改成惰性构建：直接写入文件夹时完全不需要打 zip，省一次整包内存拷贝
+  let zipBytes = null;
+  const result = {
     fileCount: files.length,
     docCount,
     assetCount: assetFiles.size,
-    warnings
+    warnings,
+    files
   };
+  Object.defineProperty(result, "zip", {
+    enumerable: true,
+    get() {
+      if (!zipBytes) zipBytes = buildZip(files);
+      return zipBytes;
+    }
+  });
+  return result;
 }
 
 module.exports = {

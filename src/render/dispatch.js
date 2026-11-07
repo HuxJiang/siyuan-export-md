@@ -4,7 +4,7 @@
  * 职责很薄：
  *   1. 拉块 DOM（/api/block/getBlockDOM），交给 render/block.js 渲染；
  *   2. DOM 缺失（接口降级、容器被折叠）时按类型拉子块兜底；
- *   3. 顶层块按 debugComment 加来源注释。
+ *   3. 顶层块渲染完统一去空白、补换行（块 id 已挂在元素属性上，不再加来源注释）。
  * 容器块内部的子块递归走 renderBlockHtml，不再重复拉子块列表。
  */
 "use strict";
@@ -98,14 +98,7 @@ async function renderBlockHtml(meta, ctx) {
   return await renderFallback(meta, ctx, type, el);
 }
 
-function decorate(html, type, ctx) {
-  const body = String(html == null ? "" : html).trim();
-  if (!body) return "";
-  const head = !ctx.inHtml && ctx.opts && ctx.opts.debugComment ? `<!-- siyuan:${type} -->\n` : "";
-  return `${head}${body}\n`;
-}
-
-/** 顶层入口：渲染一个块并收尾（注释、换行）。 */
+/** 顶层入口：渲染一个块并收尾（去掉首尾空白、补一个换行）。 */
 async function renderBlock(meta, ctx) {
   const type = normalizeType(meta.type);
   if (!type || type === "d") return "";
@@ -117,7 +110,8 @@ async function renderBlock(meta, ctx) {
     logWarn("块导出失败", meta, e);
     return "";
   }
-  return decorate(html, type, ctx);
+  const body = String(html == null ? "" : html).trim();
+  return body ? `${body}\n` : "";
 }
 
 /** 顶层安全入口：任何异常都降级成空串 + 告警，不中断整篇导出。 */
