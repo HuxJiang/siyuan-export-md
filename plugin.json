@@ -1,0 +1,25 @@
+{
+  "name": "siyuan-export-md",
+  "author": "Doubao",
+  "url": "https://github.com/your-name/siyuan-export-md",
+  "version": "0.1.0",
+  "minAppVersion": "3.0.0",
+  "backends": ["windows", "linux", "darwin", "docker"],
+  "frontends": ["desktop", "desktop-window", "browser-desktop", "mobile", "browser-mobile"],
+  "displayName": {
+    "default": "Export for Hexo/Hugo",
+    "zh_CN": "导出 Hexo/Hugo Markdown"
+  },
+  "description": {
+    "default": "Export SiYuan documents as Markdown for Hexo/Hugo. Markdown-supported syntax is exported as Markdown, everything else is preserved as portable HTML.",
+    "zh_CN": "把思源文档导出成可直接用于 Hexo/Hugo 构建的 Markdown：Markdown 支持的元素用 Markdown，不支持的用可移植 HTML 保留原显示形式。"
+  },
+  "readme": {
+    "default": "README.md",
+    "zh_CN": "README.md"
+  },
+  "funding": {
+    "custom": []
+  },
+  "keywords": ["export", "markdown", "hexo", "hugo", "导出"]
+}
